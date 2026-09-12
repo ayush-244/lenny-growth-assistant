@@ -65,7 +65,7 @@ class LLMRouter:
         logger.info("LLMRouter: selecting provider=%r", name)
 
         if name == "anthropic":
-            from app.llm.anthropic import AnthropicProvider
+            from app.llm.anthropic_provider import AnthropicProvider
             return AnthropicProvider()
 
         if name == "ollama":

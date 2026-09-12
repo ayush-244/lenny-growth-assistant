@@ -50,9 +50,10 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The API will be available at:
-- **Root:** http://localhost:8000/
-- **Health:** http://localhost:8000/health
+The application will be available at:
+- **Frontend UI:** http://localhost:3000/
+- **Backend API:** http://localhost:8000/
+- **API Health:** http://localhost:8000/health
 
 ## Environment Variables
 
@@ -71,6 +72,7 @@ The API will be available at:
 | `EMBEDDING_PROVIDER` | `local` | Embedding provider |
 | `EMBEDDING_MODEL` | *(empty)* | Embedding model name |
 | `EMBEDDING_DIMENSION` | *(empty)* | Embedding vector dimension |
+| `VITE_API_URL` | `http://localhost:8000` | Frontend API Base URL (defaults to localhost:8000) |
 
 ## Running Tests
 
@@ -78,6 +80,10 @@ The API will be available at:
 cd backend
 pip install -r requirements.txt
 pytest tests/ -v
+
+cd frontend
+npm install
+npx vitest run
 ```
 
 ## Project Structure
@@ -89,18 +95,18 @@ lenny-growth-assistant/
 │   │   ├── api/           # API routes
 │   │   ├── core/          # Configuration
 │   │   ├── db/            # Database foundation
-│   │   ├── agents/        # Agent layer (Phase 2+)
-│   │   ├── rag/           # RAG pipeline (Phase 2+)
-│   │   ├── llm/           # LLM providers (Phase 2+)
-│   │   ├── schemas/       # Pydantic schemas (Phase 2+)
-│   │   ├── services/      # Business logic (Phase 2+)
+│   │   ├── agents/        # Agent layer
+│   │   ├── rag/           # RAG pipeline
+│   │   ├── llm/           # LLM providers
+│   │   ├── schemas/       # Pydantic schemas
+│   │   ├── services/      # Business logic
 │   │   └── main.py        # FastAPI application
 │   ├── alembic/           # Database migrations
 │   ├── tests/             # Test suite
 │   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/              # Frontend (Phase 3+)
-├── ingestion/             # Transcript ingestion (Phase 2+)
+├── frontend/              # Frontend React application
+├── ingestion/             # Transcript ingestion
 ├── docs/                  # Documentation
 ├── agent-transcripts/     # Agent implementation transcripts
 ├── scripts/               # Utility scripts
@@ -112,6 +118,7 @@ lenny-growth-assistant/
 ## Development Roadmap
 
 - [x] **Phase 1** — Project Foundation
-- [ ] **Phase 2** — Database Schema, RAG Pipeline, Agent Layer
-- [ ] **Phase 3** — Frontend and Artifact Viewer
-- [ ] **Phase 4** — Polish, Testing, and Documentation
+- [x] **Phase 2** — Database Schema, RAG Pipeline, Agent Layer
+- [x] **Phase 3** — Grounded Conversational Core (LLM Providers)
+- [x] **Phase 4** — Frontend Core Chat Experience
+- [ ] **Phase 5** — TBD

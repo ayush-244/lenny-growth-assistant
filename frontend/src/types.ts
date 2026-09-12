@@ -1,0 +1,32 @@
+export interface Citation {
+  chunk_id: string;
+  episode_id: string;
+  title: string;
+  guest_name?: string | null;
+  source_url?: string | null;
+  timestamp_start?: number | null;
+  timestamp_end?: number | null;
+}
+
+export interface Message {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: Citation[] | null;
+  grounded: boolean;
+  provider?: string | null;
+  created_at: string;
+}
+
+export interface Session {
+  id: string;
+  model_provider: string;
+  metadata_?: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionWithMessages extends Session {
+  messages: Message[];
+}
