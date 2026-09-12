@@ -1,0 +1,73 @@
+{
+  "episode_id": "sample-001",
+  "title": "Growth Strategy in the Modern Product Era",
+  "guest_name": "Alex Rivera",
+  "source_url": "https://example.com/episodes/sample-001",
+  "segments": [
+    {
+      "start": 0,
+      "end": 18,
+      "text": "Welcome to the show. Today we're talking about growth strategy and what it really means to build a sustainable product in today's market."
+    },
+    {
+      "start": 18,
+      "end": 42,
+      "text": "One of the biggest misconceptions about growth is that it's purely about acquiring new users. But retention is where sustainable growth actually comes from. If you have a leaky bucket you can't just pour more water in."
+    },
+    {
+      "start": 42,
+      "end": 70,
+      "text": "When we talk about product-led growth, we mean that the product itself drives acquisition, retention, and expansion. Slack and Dropbox are classic examples. The product creates its own viral loop because sharing it makes it more useful."
+    },
+    {
+      "start": 70,
+      "end": 98,
+      "text": "Pricing strategy is often underrated as a growth lever. Most teams spend ninety percent of their time on features and maybe ten percent thinking about pricing. But pricing is actually one of the highest-leverage decisions you can make. A ten percent improvement in pricing can have a bigger impact on revenue than a ten percent improvement in conversion."
+    },
+    {
+      "start": 98,
+      "end": 128,
+      "text": "The way I think about pricing models is you need to align your pricing with the value your customers actually receive. Value-based pricing means you are capturing a portion of the value you create. Usage-based pricing is a natural fit for products where value scales with usage, like API tools or data platforms."
+    },
+    {
+      "start": 128,
+      "end": 160,
+      "text": "North Star metrics matter enormously. If you are optimizing for the wrong thing you will build the wrong product. I have seen teams optimize for daily active users when the real value driver was weekly active teams completing core workflows. The metric you choose shapes every decision your team makes."
+    },
+    {
+      "start": 160,
+      "end": 195,
+      "text": "On the topic of hiring for growth roles, the best growth people I have worked with share a few traits. They are deeply curious, they are comfortable with ambiguity, they love data but they also respect qualitative insights. A growth manager who only looks at quantitative data misses half the picture."
+    },
+    {
+      "start": 195,
+      "end": 230,
+      "text": "Experimentation culture is foundational to any growth program. You cannot have a great growth team without a great experimentation infrastructure. That means fast experiment cycles, clear ownership, and a culture where failed experiments are celebrated as learning rather than punished as failures."
+    },
+    {
+      "start": 230,
+      "end": 265,
+      "text": "Activation is the moment when a new user first experiences the core value of your product. If you can compress the time to activation you dramatically improve your conversion rates. Every unnecessary step between signup and the aha moment is a potential dropout point. Map the activation journey and ruthlessly eliminate friction."
+    },
+    {
+      "start": 265,
+      "end": 300,
+      "text": "Referral programs are one of the most misunderstood growth tactics. The best referral programs are not bribes they are amplifiers. They work when users genuinely love the product and the referral mechanism makes sharing feel natural. Dropbox succeeded because getting more storage for referrals was directly aligned with the core value of the product."
+    },
+    {
+      "start": 300,
+      "end": 340,
+      "text": "When I look at pricing strategy in SaaS, the three most common models are per-seat, usage-based, and flat-rate. Per-seat pricing works well when value scales with the number of people using the product. Usage-based pricing aligns incentives when customers pay for what they actually consume. Flat-rate is simpler but you risk leaving money on the table at the high end or pricing out smaller customers at the low end."
+    },
+    {
+      "start": 340,
+      "end": 380,
+      "text": "The concept of a growth loop is more powerful than a funnel. A funnel describes a linear flow from acquisition to conversion to retention. A growth loop is circular: new users create outputs that become inputs for acquiring more new users. Content loops, viral loops, and sales loops are examples. The most durable growth comes from compounding loops not linear funnels."
+    },
+    {
+      "start": 380,
+      "end": 420,
+      "text": "Finally, I want to address the relationship between growth and brand. Some people think growth is pure performance marketing and brand is a separate long-term investment. But the best growth programs I have seen build brand equity into every growth touch point. Your onboarding email is a brand moment. Your referral copy is a brand moment. Growth and brand are not opposites they are partners."
+    }
+  ]
+}

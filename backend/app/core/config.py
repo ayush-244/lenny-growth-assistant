@@ -25,9 +25,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
 
     # Embeddings
-    embedding_provider: str = "local"
-    embedding_model: str = ""
-    embedding_dimension: str = ""
+    embedding_provider: str = "ollama"
+    embedding_model: str = "nomic-embed-text"
+    embedding_dimension: int = 768
+
+    # RAG retrieval
+    rag_top_k: int = 5
+    rag_min_similarity: float = 0.35
 
     @property
     def database_url(self) -> str:
