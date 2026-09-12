@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     postgres_user: str = "lenny"
     postgres_password: str = "lenny"
 
-    # Model provider
+    # Model provider (used for conversation generation)
     model_provider: str = "ollama"
 
     # Ollama
@@ -23,15 +23,23 @@ class Settings(BaseSettings):
 
     # Anthropic
     anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-4-5"
 
-    # Embeddings
+    # LLM request timeout in seconds
+    llm_timeout: float = 120.0
+
+    # Embeddings (Phase 2 — unchanged)
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
     embedding_dimension: int = 768
 
-    # RAG retrieval
+    # RAG retrieval (Phase 2 — unchanged)
     rag_top_k: int = 5
     rag_min_similarity: float = 0.35
+
+    # Conversation window: number of recent messages to load per turn
+    # 10 messages = 5 conversation turns (user + assistant pairs)
+    conversation_window: int = 10
 
     @property
     def database_url(self) -> str:

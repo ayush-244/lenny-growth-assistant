@@ -81,12 +81,36 @@ def deterministic_provider():
 
 @pytest.fixture()
 def sample_fixture():
-    """Load the sample episode fixture from the ingestion/fixtures directory."""
+    """Load the sample episode fixture.
+
+    The fixture is kept at ``backend/tests/fixtures/sample_episode.json`` so
+    it is available both locally and inside the Docker container (which only
+    copies the ``backend/`` directory).
+    """
     fixture_path = (
-        Path(__file__).resolve().parent.parent.parent
-        / "ingestion"
+        Path(__file__).resolve().parent
         / "fixtures"
         / "sample_episode.json"
     )
     with fixture_path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# API Client fixture
+# ---------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient
+from app.main import app
+from app.db.database import get_db
+
+@pytest.fixture()
+def client(db_session):
+    """Return a FastAPI TestClient with the DB session overridden."""
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
