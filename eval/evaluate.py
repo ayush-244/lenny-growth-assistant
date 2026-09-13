@@ -7,24 +7,55 @@ from fastapi.testclient import TestClient
 from _pytest.monkeypatch import MonkeyPatch
 
 from app.main import app
-from app.db.database import get_db, SessionLocal
 from app.llm.base import LLMProvider, LLMResponse
 
 class DeterministicMockProvider(LLMProvider):
+    def __init__(self):
+        self.invalid_citation_attempts = 0
+
     def chat(self, messages: list[dict[str, str]], system_prompt: str | None = None, tools: list[dict[str, Any]] | None = None, tool_executor: Any = None) -> LLMResponse:
         prompt_text = " ".join([m.get("content", "") for m in messages if isinstance(m.get("content"), str)]).lower()
+        user_prompt = " ".join([m.get("content", "") for m in messages if isinstance(m.get("content"), str)]).lower()
         if system_prompt:
             prompt_text += " " + system_prompt.lower()
-            
-        if "insufficient evidence" in prompt_text or "spacex" in prompt_text:
+
+        if "spacex" in user_prompt:
             return LLMResponse(
-                content="I don't have enough context.",
+                content="I don't have enough evidence in the available Lenny sources to answer that.",
                 provider="mock",
                 model="mock",
                 tool_calls_made=0
             )
-            
-        if "ship 30 for 30 essay" in prompt_text:
+
+        if "double invalid citation behavior" in user_prompt:
+            essay = "Word " * 1250
+            return LLMResponse(
+                content=f"{essay}\n---\nCITATIONS: invalid-id-123\nWORD_COUNT: 1250",
+                provider="mock",
+                model="mock",
+                tool_calls_made=0
+            )
+
+        if "invalid citation behavior" in user_prompt:
+            self.invalid_citation_attempts += 1
+            essay = "Word " * 1250
+            if self.invalid_citation_attempts == 2:
+                # Return valid second attempt
+                return LLMResponse(
+                    content=f"{essay}\n---\nCITATIONS: 00000000-0000-0000-0000-000000000001\nWORD_COUNT: 1250",
+                    provider="mock",
+                    model="mock",
+                    tool_calls_made=0
+                )
+            else:
+                return LLMResponse(
+                    content=f"{essay}\n---\nCITATIONS: invalid-id-123\nWORD_COUNT: 1250",
+                    provider="mock",
+                    model="mock",
+                    tool_calls_made=0
+                )
+
+        if "ship 30 for 30 essay" in user_prompt or ("essay" in user_prompt and "airbnb" in user_prompt):
             essay = "Word " * 1250
             return LLMResponse(
                 content=f"{essay}\n---\nCITATIONS: 00000000-0000-0000-0000-000000000001\nWORD_COUNT: 1250",
@@ -32,8 +63,8 @@ class DeterministicMockProvider(LLMProvider):
                 model="mock",
                 tool_calls_made=0
             )
-            
-        if "markdown artifact" in prompt_text or "checklist" in prompt_text:
+
+        if "markdown artifact" in user_prompt or "checklist" in user_prompt:
             if tool_executor:
                 tool_executor("generate_artifact", {"type": "markdown", "content": "# Checklist"})
             return LLMResponse(
@@ -42,8 +73,8 @@ class DeterministicMockProvider(LLMProvider):
                 model="mock",
                 tool_calls_made=1
             )
-            
-        if "html artifact" in prompt_text or "visual layout" in prompt_text:
+
+        if "html artifact" in user_prompt or "visual layout" in user_prompt:
             if tool_executor:
                 tool_executor("generate_artifact", {"type": "html", "content": "<div>Layout</div>"})
             return LLMResponse(
@@ -52,10 +83,17 @@ class DeterministicMockProvider(LLMProvider):
                 model="mock",
                 tool_calls_made=1
             )
-            
-        if tool_executor and tools and any(t.get("name") == "search_knowledge_base" for t in tools):
-            tool_executor("search_knowledge_base", {"query": "test"})
-            
+
+        has_retrieval_tool = False
+        if tools:
+            for t in tools:
+                if t.get("name") == "retrieve_knowledge" or t.get("function", {}).get("name") == "retrieve_knowledge":
+                    has_retrieval_tool = True
+                    break
+        if tool_executor and has_retrieval_tool:
+            tool_executor("retrieve_knowledge", {"query": "test"})
+
+        # Standard factual
         return LLMResponse(
             content="Brian Chesky said X. [00000000-0000-0000-0000-000000000001]",
             provider="mock",
@@ -65,69 +103,92 @@ class DeterministicMockProvider(LLMProvider):
 
 def run_evaluation():
     print("Starting Deterministic Evaluation Harness...")
-    
+
     mp = MonkeyPatch()
+    mock_provider_instance = DeterministicMockProvider()
     def mock_get_provider(*args, **kwargs):
-        return DeterministicMockProvider()
-        
+        return mock_provider_instance
+
     mp.setattr("app.llm.router.LLMRouter.get_provider", mock_get_provider)
     mp.setattr("app.llm.get_llm_provider", mock_get_provider)
-    
+
     from app.schemas.retrieval import RetrievalResponse, RetrievalResult
-    
-    class MockRetriever:
-        def __init__(self, *args, **kwargs): pass
-        def retrieve(self, *args, **kwargs):
-            query = kwargs.get("query", "")
-            if not query and args:
-                query = args[0]
-            if "spacex" in query.lower():
-                return RetrievalResponse(query=query, results=[], total_found=0, threshold_applied=0.5)
-            
-            return RetrievalResponse(
-                query=query,
-                results=[
-                    RetrievalResult(
-                        chunk_id=uuid.UUID(int=1),
-                        transcript_id=uuid.UUID(int=2),
-                        content="Mock evidence content",
-                        similarity_score=0.9,
-                        episode_id="episode_1",
-                        title="Mock Title",
-                        guest_name="Mock Guest",
-                        source_url="http://mock",
-                        timestamp_start=0,
-                        timestamp_end=10,
-                        chunk_index=0
-                    )
-                ],
-                total_found=1,
-                threshold_applied=0.5
-            )
-            
-    mp.setattr("app.rag.retriever.Retriever", MockRetriever)
-    
-    # Also mock get_embedding_provider so ship30 doesn't try to connect to ollama embeddings
+
+    from app.rag.retriever import Retriever
+
+    def mock_retrieve(self, query: str, *args, **kwargs):
+        if "spacex" in query.lower():
+            return RetrievalResponse(query=query, results=[], total_found=0, threshold_applied=0.5)
+
+        # Return 3 results for Ship30 to pass MIN_EVIDENCE_CHUNKS (usually 3)
+        return RetrievalResponse(
+            query=query,
+            results=[
+                RetrievalResult(
+                    chunk_id=uuid.UUID(int=1),
+                    transcript_id=uuid.UUID(int=2),
+                    content="Mock evidence content 1",
+                    similarity_score=0.9,
+                    episode_id="episode_1",
+                    title="Mock Title",
+                    guest_name="Mock Guest",
+                    source_url="http://mock",
+                    timestamp_start=0,
+                    timestamp_end=10,
+                    chunk_index=0
+                ),
+                RetrievalResult(
+                    chunk_id=uuid.UUID(int=2),
+                    transcript_id=uuid.UUID(int=3),
+                    content="Mock evidence content 2",
+                    similarity_score=0.8,
+                    episode_id="episode_1",
+                    title="Mock Title",
+                    guest_name="Mock Guest",
+                    source_url="http://mock",
+                    timestamp_start=10,
+                    timestamp_end=20,
+                    chunk_index=1
+                ),
+                RetrievalResult(
+                    chunk_id=uuid.UUID(int=3),
+                    transcript_id=uuid.UUID(int=4),
+                    content="Mock evidence content 3",
+                    similarity_score=0.7,
+                    episode_id="episode_1",
+                    title="Mock Title",
+                    guest_name="Mock Guest",
+                    source_url="http://mock",
+                    timestamp_start=20,
+                    timestamp_end=30,
+                    chunk_index=2
+                )
+            ],
+            total_found=3,
+            threshold_applied=0.5
+        )
+
+    mp.setattr(Retriever, "retrieve", mock_retrieve)
+
     class MockEmbeddingProvider:
         def embed(self, text): return [0.0]*768
     def mock_get_embedding_provider(*args, **kwargs): return MockEmbeddingProvider()
     mp.setattr("app.rag.embeddings.get_embedding_provider", mock_get_embedding_provider)
-    
-    # Also fix citations logic. The LLM needs to cite "00000000-0000-0000-0000-000000000001"
-    
+
     client = TestClient(app)
 
     with open("eval/questions.json", "r") as f:
         questions = json.load(f)
-        
+
     session_id = None
     results = {
-        "total": len(questions),
+        "total": len(questions) + 1,
         "passed": 0,
         "failed": 0,
         "groundedness": {"grounded": 0, "insufficient_context": 0, "error": 0},
         "artifacts": 0,
         "ship30": 0,
+        "citation_validation": 0,
         "session_isolation_tested": False
     }
 
@@ -135,15 +196,14 @@ def run_evaluation():
         resp = client.post("/sessions")
         resp.raise_for_status()
         session_id = resp.json()["id"]
-        print(f"Created Session A: {session_id}")
     except Exception as e:
         print(f"Failed to create session: {e}")
         return
 
     for q in questions:
-        print(f"\n--- Running Case: {q['id']} ({q['description']}) ---")
+        qid = q["id"]
+        print(f"--- Running Case: {qid} ---")
         try:
-            start_time = time.time()
             if q["type"] == "message":
                 res = client.post(
                     f"/sessions/{session_id}/messages",
@@ -151,14 +211,20 @@ def run_evaluation():
                 )
                 res.raise_for_status()
                 data = res.json()
-                
-                if data.get("grounded"):
+
+                if qid == "case_a_factual" or qid == "case_b_multiturn":
+                    assert data["grounded"] is True, "Expected grounded=True"
+                    assert "00000000-0000-0000-0000-000000000001" in data["content"], "Expected citation in content"
                     results["groundedness"]["grounded"] += 1
-                else:
+
+                if qid == "case_c_insufficient":
+                    assert data["grounded"] is False, "Expected grounded=False for out of corpus"
+                    assert "00000000" not in data["content"], "Should not have citations"
                     results["groundedness"]["insufficient_context"] += 1
-                    
-                print(f"Result: SUCCESS (Grounded: {data.get('grounded')})")
-                
+
+                print(f"PASS {qid}")
+                results["passed"] += 1
+
             elif q["type"] == "essay":
                 res = client.post(
                     f"/sessions/{session_id}/essay",
@@ -166,9 +232,31 @@ def run_evaluation():
                 )
                 res.raise_for_status()
                 data = res.json()
-                results["ship30"] += 1
-                print(f"Result: SUCCESS (Words: {data.get('word_count')}, Grounded: {data.get('grounded')})")
-                
+
+                if qid == "case_d_ship30":
+                    assert data["grounded"] is True, "Expected grounded=True"
+                    assert 1100 <= data["word_count"] <= 1400, "Word count not in range"
+                    assert len(data.get("validation_issues", [])) == 0, "Expected no issues"
+                    results["ship30"] += 1
+
+                if qid == "case_e_invalid_citation":
+                    assert data["grounded"] is True, "Expected grounded=True after retry"
+                    assert data.get("generation_attempts", 1) == 2, "Expected exactly 2 attempts"
+                    assert len(data.get("validation_issues", [])) == 0, "Expected no final issues"
+                    results["citation_validation"] += 1
+
+                if qid == "case_f_invalid_citation_fallback":
+                    assert data["grounded"] is False, "Expected fallback to be ungrounded"
+                    assert data.get("generation_attempts", 1) == 2, "Expected exactly 2 attempts"
+                    # In python, finding a substring in the list elements
+                    issues = data.get("validation_issues", [])
+                    assert any("invalid_citations" in i for i in issues), "Expected invalid citations issue"
+                    assert (data.get("word_count", 0) or 0) < 50, "Expected safe fallback content without prose"
+                    results["citation_validation"] += 1
+
+                print(f"PASS {qid}")
+                results["passed"] += 1
+
             elif q["type"] == "artifact":
                 res = client.post(
                     f"/sessions/{session_id}/artifacts",
@@ -176,52 +264,50 @@ def run_evaluation():
                 )
                 res.raise_for_status()
                 data = res.json()
+
+                assert data["artifact_type"] == q["artifact_type"], "Artifact type mismatch"
+                assert len(data["content"]) > 0, "Empty content"
+
+                if q["artifact_type"] == "html":
+                    assert "Content-Security-Policy" in data["content"], "CSP missing from HTML"
+
+                # Verify persistence
+                arts = client.get(f"/sessions/{session_id}/artifacts").json()
+                assert any(a["id"] == data["id"] for a in arts), "Artifact not persisted"
+
                 results["artifacts"] += 1
-                print(f"Result: SUCCESS (Type: {data.get('artifact_type')})")
-                
-            latency = time.time() - start_time
-            print(f"Latency: {latency:.2f}s")
-            results["passed"] += 1
-            
+                print(f"PASS {qid}")
+                results["passed"] += 1
+
         except Exception as e:
-            print(f"Result: FAILED ({str(e)})")
+            print(f"FAILED {qid}: {str(e)}")
             results["failed"] += 1
-            results["groundedness"]["error"] += 1
 
     # Test Session Isolation
-    print("\n--- Running Case: case_h_session_isolation (Session isolation) ---")
+    qid = "case_i_session_isolation"
+    print(f"--- Running Case: {qid} ---")
     try:
         resp = client.post("/sessions")
         session_b = resp.json()["id"]
-        
-        arts = client.get(f"/sessions/{session_b}/artifacts")
-        arts_data = arts.json()
-        
-        if len(arts_data) == 0:
-            print("Result: SUCCESS (No artifacts leaked from Session A)")
-            results["session_isolation_tested"] = True
-            results["passed"] += 1
-        else:
-            print("Result: FAILED (Artifacts leaked)")
-            results["failed"] += 1
-            
+
+        arts = client.get(f"/sessions/{session_b}/artifacts").json()
+        assert len(arts) == 0, "Artifacts leaked across sessions"
+
+        results["session_isolation_tested"] = True
+        print(f"PASS {qid}")
+        results["passed"] += 1
     except Exception as e:
-        print(f"Result: FAILED ({e})")
+        print(f"FAILED {qid}: {str(e)}")
         results["failed"] += 1
 
-    print("\n==============================")
-    print("Evaluation Summary")
-    print("==============================")
-    print(f"Total cases: {results['total'] + 1}")
-    print(f"Passed: {results['passed']}")
-    print(f"Failed: {results['failed']}")
-    print("\nGroundedness:")
-    print(f"  Grounded: {results['groundedness']['grounded']}")
-    print(f"  Insufficient Context: {results['groundedness']['insufficient_context']}")
-    print(f"  Errors: {results['groundedness']['error']}")
-    print(f"\nShip30 generated: {results['ship30']}")
-    print(f"Artifacts generated: {results['artifacts']}")
-    print(f"Session isolation successful: {results['session_isolation_tested']}")
+    print("\nTotal cases:", results['total'])
+    print("Passed:", results['passed'])
+    print("Failed:", results['failed'])
+    print("\nGroundedness summary:", results['groundedness'])
+    print("Ship30 summary:", results['ship30'])
+    print("Artifact summary:", results['artifacts'])
+    print("Citation validation summary:", results['citation_validation'])
+    print("Session isolation summary:", results['session_isolation_tested'])
 
 if __name__ == "__main__":
     run_evaluation()

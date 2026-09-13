@@ -84,5 +84,5 @@ python eval/evaluate.py
 ## Known Limitations
 - **Static Corpus**: The application relies on a static JSON fixture; it does not crawl new episodes automatically.
 - **No Authentication**: Sessions are persistent via UUIDs but there is no user login/auth layer.
-- **Local Ollama Quality**: When running `llama3.1:8b` locally, generation latency and formatting adherence may differ from Claude 3.5 Sonnet.
+- **Local Ollama Quality**: When running `llama3.1:8b` locally, generation latency and formatting adherence may differ from Anthropic Claude models.
 - **English Focus**: The system is tuned and validated strictly for English content.

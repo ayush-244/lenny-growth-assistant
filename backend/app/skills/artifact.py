@@ -163,7 +163,7 @@ class ArtifactSkill:
         provider = get_llm_provider(provider_name)
         llm_response = provider.chat(
             messages=[{"role": "user", "content": prompt}],
-            system=system_instructions,
+            system_prompt=system_instructions,
         )
         
         content = self._clean_llm_output(llm_response.content, artifact_type)

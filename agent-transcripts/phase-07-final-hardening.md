@@ -10,7 +10,7 @@ Finalize the Lenny Growth Assistant for submission by ensuring operational readi
 
 ## Evaluation Harness
 - Created a deterministic evaluation suite (`eval/questions.json` and `eval/evaluate.py`).
-- Tests explicit behaviors programmatically: grounded Q&A, multi-turn context boundaries, graceful handling of insufficient evidence, Ship30 validations, Markdown/HTML artifact generation, and strict session isolation.
+- Tests explicit behaviors programmatically: grounded Q&A, multi-turn context boundaries, graceful handling of insufficient evidence, Ship30 validations (word counts, invalid-citation rejection, double-invalid-citation safe fallback), Markdown/HTML artifact generation, and strict session isolation.
 
 ## Documentation
 - Completely rewrote `README.md` to be an evaluator-first entry point (architecture, quick start, provider switching, security).
@@ -18,6 +18,7 @@ Finalize the Lenny Growth Assistant for submission by ensuring operational readi
 
 ## Security & QA
 - **Security Check**: Verified that the CSP and iframe `sandbox` prevent XSS in HTML artifacts. `dangerouslySetInnerHTML` remains strictly forbidden.
+- Manual browser QA was not available in this environment.
 - **Environment**: Ensured `.env` remains untracked and all configuration uses declarative models.
 - **Dependencies**: Verified that all imports resolve and dependencies remain minimal and stable.
 
