@@ -43,6 +43,7 @@ from app.core.config import settings
 from app.llm import LLMError, get_llm_provider
 from app.rag.retriever import Retriever
 from app.schemas.retrieval import RetrievalResult
+from app.logger import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -448,10 +449,10 @@ class Ship30Skill:
 
         # --- 3. Check for insufficient evidence ---
         if is_insufficient_evidence(evidence) or len(evidence) < MIN_EVIDENCE_CHUNKS:
-            logger.info(
-                "Ship30: insufficient evidence retrieved=%d topic=%r",
-                len(evidence),
-                topic[:80],
+            log_event(
+                "ship30_insufficient_evidence",
+                retrieved=len(evidence),
+                topic=topic[:80],
             )
             insufficient_msg = (
                 "I don't have enough evidence in the available Lenny sources "

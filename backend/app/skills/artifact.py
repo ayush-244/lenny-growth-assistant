@@ -78,7 +78,8 @@ class ArtifactSkill:
 
     def __init__(self, db_session: DbSession) -> None:
         self.db = db_session
-        self.retriever = Retriever(db_session)
+        from app.rag.embeddings import get_embedding_provider
+        self.retriever = Retriever(get_embedding_provider())
         # Use configured top_k for thorough artifact context
         self.top_k = settings.rag_top_k
 
@@ -124,8 +125,9 @@ class ArtifactSkill:
         # 3. Retrieve grounding evidence
         retrieval_response = self.retriever.retrieve(
             topic,
+            db=self.db,
             top_k=self.top_k,
-            threshold=settings.rag_min_similarity,
+            min_similarity=settings.rag_min_similarity,
         )
         evidence = retrieval_response.results
         logger.info("Artifact: retrieved %d chunks", len(evidence))

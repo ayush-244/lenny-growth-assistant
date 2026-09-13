@@ -4,12 +4,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.sessions import router as sessions_router
+from app.middleware import RequestIDMiddleware
 
 app = FastAPI(
     title="The Lenny Growth Assistant",
     version="0.1.0",
     description="AI conversational assistant powered by Lenny's Podcast and Newsletter insights.",
 )
+
+app.add_middleware(RequestIDMiddleware)
 
 # Configure CORS for local development and Docker networking
 app.add_middleware(

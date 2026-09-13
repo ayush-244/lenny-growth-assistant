@@ -135,15 +135,15 @@ class Retriever:
             )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        logger.info(
-            "Retrieval complete query=%r top_k=%d threshold=%.2f "
-            "candidates=%d returned=%d latency_ms=%.1f",
-            query[:80],
-            k,
-            threshold,
-            len(rows),
-            len(results),
-            elapsed_ms,
+        from app.logger import log_event
+        log_event(
+            "retrieval",
+            query=query,
+            top_k=k,
+            threshold=threshold,
+            candidates=len(rows),
+            returned=len(results),
+            latency_ms=int(elapsed_ms),
         )
 
         return RetrievalResponse(

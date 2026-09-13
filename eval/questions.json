@@ -1,0 +1,41 @@
+[
+  {
+    "id": "case_a_factual",
+    "type": "message",
+    "query": "What did Brian Chesky say about Airbnb's early growth?",
+    "description": "Direct factual retrieval"
+  },
+  {
+    "id": "case_b_multiturn",
+    "type": "message",
+    "query": "Can you elaborate more on what Brian said?",
+    "depends_on": "case_a_factual",
+    "description": "Multi-turn context"
+  },
+  {
+    "id": "case_c_insufficient",
+    "type": "message",
+    "query": "What does Lenny think about the latest SpaceX launch?",
+    "description": "Insufficient evidence"
+  },
+  {
+    "id": "case_d_ship30",
+    "type": "essay",
+    "query": "Write an essay about Airbnb's early growth.",
+    "description": "Ship30 generation"
+  },
+  {
+    "id": "case_f_markdown_artifact",
+    "type": "artifact",
+    "artifact_type": "markdown",
+    "query": "Create a checklist for onboarding based on Airbnb's practices.",
+    "description": "Markdown artifact"
+  },
+  {
+    "id": "case_g_html_artifact",
+    "type": "artifact",
+    "artifact_type": "html",
+    "query": "Create a visual layout of an onboarding screen.",
+    "description": "HTML artifact"
+  }
+]

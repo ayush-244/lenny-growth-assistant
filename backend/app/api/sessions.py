@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.agents.orchestrator import GroundedConversationalAgent
 from app.db.database import get_db
@@ -17,6 +17,7 @@ from app.services.session import SessionNotFoundError, SessionService
 from app.services.artifact import ArtifactService
 from app.skills.ship30 import Ship30Skill
 from app.skills.artifact import ArtifactSkill
+from app.logger import log_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -43,6 +44,7 @@ def get_session(session_id: uuid.UUID, db=Depends(get_db)) -> Any:
 
 @router.post("/{session_id}/messages", response_model=MessageResponse)
 def create_message(
+    request: Request,
     session_id: uuid.UUID,
     payload: MessageCreate,
     db=Depends(get_db),
@@ -64,23 +66,10 @@ def create_message(
         raise HTTPException(status_code=404, detail="Session not found")
 
     service.add_user_message(session_id, payload.content)
+    
+    log_event("message_received", request=request, session_id=str(session_id))
 
-    # 2. Load bounded recent history (excludes the message we just added
-    # since we pass the latest question explicitly to the agent, although
-    # the orchestrator signature accepts question + history, so we'll just
-    # fetch history *before* this turn)
-    # Actually, SessionService.get_recent_history will include the user message
-    # we just saved! So let's pass it to the agent, but the orchestrator expects
-    # question explicitly. Let's adjust logic:
-    
-    # We will pass the full history EXCEPT the latest user message to history,
-    # or just let Orchestrator build the messages list differently.
-    # The simplest is to fetch history BEFORE adding the user message.
-    
-    # Let's rollback that thought — we already added it. 
-    # Let's fetch history. The last item is the user message.
     full_history = service.get_recent_history(session_id)
-    # Extract the last message (the one we just added) as the question
     if full_history and full_history[-1]["role"] == "user":
         history = full_history[:-1]
     else:
@@ -89,15 +78,18 @@ def create_message(
     # 3. Run the Agent
     agent = GroundedConversationalAgent(db)
     try:
+        import time
+        start = time.time()
         result = agent.answer_question(
             question=payload.content,
             history=history,
         )
+        latency = int((time.time() - start) * 1000)
     except LLMError as exc:
-        logger.error("LLM Error during message processing: %s", exc)
+        log_event("llm_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected error in agent loop")
+        log_event("unexpected_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error")
 
     # 4. Save assistant response
@@ -109,63 +101,54 @@ def create_message(
         provider=result["provider"],
     )
 
+    log_event("message_completed", request=request, session_id=str(session_id), provider=result["provider"], latency_ms=latency, outcome="success" if result["grounded"] else "insufficient_context")
+
     return assistant_msg
 
 
 @router.post("/{session_id}/essay", response_model=EssayResponse)
 def create_essay(
+    request: Request,
     session_id: uuid.UUID,
     payload: EssayCreate,
     db=Depends(get_db),
 ) -> Any:
-    """Generate a grounded Ship 30 for 30 essay from Lenny knowledge.
-
-    This endpoint:
-    1. Validates the session exists.
-    2. Saves the user essay request as a message.
-    3. Resolves the topic using the request + last 4 session messages.
-    4. Retrieves grounding evidence from the knowledge base.
-    5. Runs the Ship30Skill (up to 2 generation attempts with validation).
-    6. Persists and returns the essay as an assistant message.
-    """
+    """Generate a grounded Ship 30 for 30 essay from Lenny knowledge."""
     service = SessionService(db)
 
-    # 1. Validate session
     try:
         service.get_session(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # 2. Save user essay request as a message
     service.add_user_message(session_id, payload.content)
+    
+    log_event("essay_requested", request=request, session_id=str(session_id))
 
-    # 3. Load bounded recent history for context resolution
-    #    (last 4 messages, which includes the user message we just saved)
     from app.skills.ship30 import CONVERSATION_CONTEXT_LIMIT
     full_history = service.get_recent_history(session_id)
-    # Exclude the just-added user message from context (it IS the request)
     if full_history and full_history[-1]["role"] == "user":
         context_history = full_history[:-1]
     else:
         context_history = full_history
-    # Bound to CONVERSATION_CONTEXT_LIMIT
     bounded_history = context_history[-CONVERSATION_CONTEXT_LIMIT:]
 
-    # 4. Run Ship30 skill
     skill = Ship30Skill(db)
     try:
+        import time
+        start = time.time()
         result = skill.run(
             request=payload.content,
             recent_history=bounded_history,
         )
+        latency = int((time.time() - start) * 1000)
     except LLMError as exc:
-        logger.error("Ship30 LLM error session=%s: %s", session_id, exc)
+        log_event("ship30_llm_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected error in Ship30 skill session=%s", session_id)
+        log_event("ship30_unexpected_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    # 5. Persist essay as assistant message
     essay_msg = service.add_assistant_message(
         session_id=session_id,
         content=result.essay,
@@ -174,7 +157,6 @@ def create_essay(
         provider=result.provider,
     )
 
-    # 6. Build extended response with Ship30 metadata
     response_data = EssayResponse(
         id=essay_msg.id,
         session_id=essay_msg.session_id,
@@ -190,21 +172,23 @@ def create_essay(
         validation_issues=result.validation_issues,
     )
 
-    logger.info(
-        "Ship30 essay complete session=%s provider=%r word_count=%d "
-        "grounded=%r attempts=%d issues=%r",
-        session_id,
-        result.provider,
-        result.word_count,
-        result.grounded,
-        result.generation_attempts,
-        result.validation_issues,
+    log_event(
+        "essay_completed",
+        request=request,
+        session_id=str(session_id),
+        provider=result.provider,
+        latency_ms=latency,
+        word_count=result.word_count,
+        grounded=result.grounded,
+        attempts=result.generation_attempts,
+        issues=result.validation_issues,
     )
 
     return response_data
 
 @router.post("/{session_id}/artifacts", response_model=ArtifactResponse)
 def create_artifact(
+    request: Request,
     session_id: uuid.UUID,
     payload: ArtifactCreate,
     db=Depends(get_db),
@@ -217,21 +201,25 @@ def create_artifact(
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
         
-    # Get bounded history
+    log_event("artifact_requested", request=request, session_id=str(session_id), type=payload.artifact_type)
+
     full_history = service.get_recent_history(session_id)
     
     skill = ArtifactSkill(db)
     try:
+        import time
+        start = time.time()
         result = skill.run(
             request=payload.request,
             artifact_type=payload.artifact_type,
             recent_history=full_history,
         )
+        latency = int((time.time() - start) * 1000)
     except LLMError as exc:
-        logger.error("Artifact LLM error session=%s: %s", session_id, exc)
+        log_event("artifact_llm_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
-        logger.exception("Unexpected error in Artifact skill session=%s", session_id)
+        log_event("artifact_unexpected_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error")
         
     artifact_service = ArtifactService(db)
@@ -243,6 +231,16 @@ def create_artifact(
         grounded=result.grounded,
         provider=result.provider,
         title=payload.request[:197] + "..." if len(payload.request) > 200 else payload.request,
+    )
+    
+    log_event(
+        "artifact_completed",
+        request=request,
+        session_id=str(session_id),
+        provider=result.provider,
+        latency_ms=latency,
+        type=result.artifact_type,
+        grounded=result.grounded,
     )
     
     return artifact

@@ -1,124 +1,88 @@
 # The Lenny Growth Assistant
 
-An AI conversational assistant powered by Lenny's Podcast and Newsletter insights. Built with FastAPI, PostgreSQL (pgvector), and the Anthropic Claude Agent SDK.
+The Lenny Growth Assistant is a conversational AI designed to help product managers, founders, and growth practitioners navigate the knowledge base of Lenny Rachitsky's newsletter and podcast.
 
-## Current Status
+## Product Problem
+Professionals often struggle to find specific, actionable insights buried in hundreds of podcast episodes and newsletter posts. The Lenny Growth Assistant solves this by retrieving exact factual evidence from transcripts and summarizing it into grounded, actionable answers.
 
-**Phase 1 — Project Foundation** ✅
+## Core Workflow
+1. **Question**: User asks a product/growth question.
+2. **Retrieval**: System retrieves relevant transcript chunks using pgvector cosine similarity.
+3. **Grounded Answer**: The LLM synthesizes an answer using *only* the retrieved evidence.
+4. **Citation**: Exact episode/source citations are provided inline.
+5. **Ship30/Artifact**: Users can optionally generate a Ship 30 for 30 essay or Markdown/HTML artifacts based directly on the retrieved evidence.
 
-The application foundation is in place:
-- FastAPI backend with health endpoint
-- PostgreSQL with pgvector support
-- Docker Compose orchestration
-- SQLAlchemy and Alembic foundation
-- Configuration via environment variables
-
-> **Note:** RAG, agents, transcript ingestion, artifacts, and frontend are not yet implemented. These will be built in subsequent phases.
+## Features
+- **Grounded Q&A**: Refuses to answer if evidence is insufficient (no hallucinations).
+- **Citations**: Direct links to the underlying episodes.
+- **Persistent Sessions**: Chat history is saved to a PostgreSQL database.
+- **Ship30**: Generate 1,250-word essays grounded in transcript facts.
+- **Artifacts**: Generate structured Markdown or interactive HTML/CSS layouts.
+- **Safe HTML Viewer**: HTML artifacts are strictly sandboxed in an iframe with a restrictive CSP.
+- **Provider Switching**: Seamlessly switch between Anthropic (Claude) and Ollama (local Llama 3.1) via environment variables.
 
 ## Architecture
-
-| Component | Technology |
-|-----------|-----------|
-| Backend API | FastAPI + Uvicorn |
-| Database | PostgreSQL 16 with pgvector |
-| ORM | SQLAlchemy 2.x |
-| Migrations | Alembic |
-| Configuration | pydantic-settings |
-| Agent Layer | Anthropic Claude Agent SDK *(Phase 2+)* |
-| Frontend | TBD *(Phase 3+)* |
-
-## Prerequisites
-
-- [Docker](https://www.docker.com/) and Docker Compose
-- Git
-
-For local development without Docker:
-- Python 3.12+
-- PostgreSQL 16 with pgvector extension
+- **Frontend**: React + Vite + TypeScript.
+- **Backend**: FastAPI + Python 3.12.
+- **Agent/Skill Layer**: Custom orchestration for Retrieval, Ship30, and Artifact generation.
+- **Retrieval + Model Provider**: Custom Abstractions for Anthropic and Ollama.
+- **Database**: PostgreSQL with pgvector for embeddings and ORM state (users, sessions, messages, artifacts).
 
 ## Quick Start
-
+The simplest way to run the application is via Docker Compose:
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd lenny-growth-assistant
-
-# Create environment file
-cp .env.example .env
-
-# Start all services
-docker compose up --build
+docker compose up --build -d
 ```
-
-The application will be available at:
-- **Frontend UI:** http://localhost:3000/
-- **Backend API:** http://localhost:8000/
-- **API Health:** http://localhost:8000/health
+The API will be available at `http://localhost:8000` and the frontend at `http://localhost:3000`.
 
 ## Environment Variables
+Create a `.env` file based on `.env.example`:
+- `MODEL_PROVIDER`: Set to `ollama` or `anthropic`.
+- `ANTHROPIC_API_KEY`: Required if using Anthropic.
+- `OLLAMA_BASE_URL` & `OLLAMA_MODEL`: Settings for local Ollama usage.
+- `EMBEDDING_PROVIDER` & `EMBEDDING_MODEL`: Provider for pgvector embeddings.
+- `POSTGRES_*`: Database credentials.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_ENV` | `development` | Application environment |
-| `POSTGRES_HOST` | `db` | PostgreSQL host |
-| `POSTGRES_PORT` | `5432` | PostgreSQL port |
-| `POSTGRES_DB` | `lenny` | Database name |
-| `POSTGRES_USER` | `lenny` | Database user |
-| `POSTGRES_PASSWORD` | `lenny` | Database password |
-| `MODEL_PROVIDER` | `ollama` | LLM provider (`ollama` or `anthropic`) |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434` | Ollama API base URL |
-| `OLLAMA_MODEL` | `llama3.1:8b` | Ollama model name |
-| `ANTHROPIC_API_KEY` | *(empty)* | Anthropic API key |
-| `EMBEDDING_PROVIDER` | `local` | Embedding provider |
-| `EMBEDDING_MODEL` | *(empty)* | Embedding model name |
-| `EMBEDDING_DIMENSION` | *(empty)* | Embedding vector dimension |
-| `VITE_API_URL` | `http://localhost:8000` | Frontend API Base URL (defaults to localhost:8000) |
-
-## Running Tests
-
+## Knowledge Ingestion
+To populate the knowledge base with the included JSON transcript fixture:
 ```bash
-cd backend
-pip install -r requirements.txt
-pytest tests/ -v
-
-cd frontend
-npm install
-npx vitest run
+docker compose exec api python -m scripts.ingest --file ./ingestion/sample_transcripts.json
 ```
 
-## Project Structure
+## Provider Switching
+You can switch providers instantly without changing code by updating your `.env` or setting the environment variable before startup:
+```bash
+MODEL_PROVIDER=anthropic docker compose up -d
+# or
+MODEL_PROVIDER=ollama docker compose up -d
+```
+*(If using Ollama, ensure the model is pulled: `ollama run llama3.1:8b`)*
 
-```text
-lenny-growth-assistant/
-├── backend/
-│   ├── app/
-│   │   ├── api/           # API routes
-│   │   ├── core/          # Configuration
-│   │   ├── db/            # Database foundation
-│   │   ├── agents/        # Agent layer
-│   │   ├── rag/           # RAG pipeline
-│   │   ├── llm/           # LLM providers
-│   │   ├── schemas/       # Pydantic schemas
-│   │   ├── services/      # Business logic
-│   │   └── main.py        # FastAPI application
-│   ├── alembic/           # Database migrations
-│   ├── tests/             # Test suite
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/              # Frontend React application
-├── ingestion/             # Transcript ingestion
-├── docs/                  # Documentation
-├── agent-transcripts/     # Agent implementation transcripts
-├── scripts/               # Utility scripts
-├── docker-compose.yml
-├── .env.example
-└── README.md
+## Testing
+Run the backend tests (requires local PostgreSQL):
+```bash
+$env:POSTGRES_HOST="localhost"; backend\.venv\Scripts\pytest backend\tests
+```
+Run the frontend tests:
+```bash
+cd frontend && npx vitest run
 ```
 
-## Development Roadmap
+## Evaluation
+A deterministic evaluation harness is provided to verify groundedness and system constraints (e.g. Ship30 word count, invalid citation rejection, session isolation).
+Run it with:
+```bash
+python eval/evaluate.py
+```
 
-- [x] **Phase 1** — Project Foundation
-- [x] **Phase 2** — Database Schema, RAG Pipeline, Agent Layer
-- [x] **Phase 3** — Grounded Conversational Core (LLM Providers)
-- [x] **Phase 4** — Frontend Core Chat Experience
-- [ ] **Phase 5** — TBD
+## Security
+- **Untrusted HTML**: Generated HTML artifacts are treated as hostile.
+- **Sandboxed Iframe**: HTML is rendered in `<iframe sandbox="" srcDoc="...">`, explicitly disabling scripts, forms, popups, and top-navigation.
+- **CSP**: A restrictive Content-Security-Policy is injected into all HTML artifacts.
+- **No dangerouslySetInnerHTML**: Prohibited across the entire codebase.
+
+## Known Limitations
+- **Static Corpus**: The application relies on a static JSON fixture; it does not crawl new episodes automatically.
+- **No Authentication**: Sessions are persistent via UUIDs but there is no user login/auth layer.
+- **Local Ollama Quality**: When running `llama3.1:8b` locally, generation latency and formatting adherence may differ from Claude 3.5 Sonnet.
+- **English Focus**: The system is tuned and validated strictly for English content.
