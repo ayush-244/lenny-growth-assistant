@@ -9,6 +9,7 @@ interface ChatAreaProps {
   error: string | null;
   provider: string | null;
   onSendMessage: (content: string) => void;
+  onGenerateEssay?: (content: string) => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -17,6 +18,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   error,
   provider,
   onSendMessage,
+  onGenerateEssay,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -69,7 +71,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </div>
 
-      <Composer onSend={onSendMessage} disabled={isLoading} />
+      <Composer onSend={onSendMessage} onGenerateEssay={onGenerateEssay} disabled={isLoading} />
     </div>
   );
 };

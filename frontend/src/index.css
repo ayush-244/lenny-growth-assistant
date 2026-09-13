@@ -411,10 +411,15 @@ body {
   opacity: 0.5;
 }
 
-.composer-send {
+.composer-actions {
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+}
+
+.composer-send, .composer-essay {
   background: transparent;
   border: none;
-  color: var(--color-primary);
   padding: 0.75rem;
   margin: 0.25rem;
   border-radius: var(--radius-lg);
@@ -422,14 +427,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, color 0.2s;
 }
 
-.composer-send:hover:not(:disabled) {
+.composer-send {
+  color: var(--color-primary);
+}
+
+.composer-essay {
+  color: #8b5cf6; /* A distinct purple color for the essay feature */
+}
+
+.composer-send:hover:not(:disabled), .composer-essay:hover:not(:disabled) {
   background-color: var(--color-bg-user);
 }
 
-.composer-send:disabled {
+.composer-send:disabled, .composer-essay:disabled {
   color: var(--color-text-muted);
   cursor: not-allowed;
 }

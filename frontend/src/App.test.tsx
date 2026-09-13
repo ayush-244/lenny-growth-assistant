@@ -9,6 +9,7 @@ vi.mock('./api', () => ({
     createSession: vi.fn(),
     getSession: vi.fn(),
     sendMessage: vi.fn(),
+    generateEssay: vi.fn(),
   },
 }));
 

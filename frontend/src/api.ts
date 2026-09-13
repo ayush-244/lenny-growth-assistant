@@ -1,4 +1,4 @@
-import type { Session, SessionWithMessages, Message } from './types';
+import type { Session, SessionWithMessages, Message, EssayResponse } from './types';
 
 // Use standard vite environment variable convention for API URL
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -52,5 +52,14 @@ export const api = {
       body: JSON.stringify({ content }),
     });
     return handleResponse<Message>(response);
-  }
+  },
+
+  async generateEssay(sessionId: string, content: string): Promise<EssayResponse> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/essay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    return handleResponse<EssayResponse>(response);
+  },
 };

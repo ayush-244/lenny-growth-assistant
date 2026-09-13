@@ -19,6 +19,13 @@ export interface Message {
   created_at: string;
 }
 
+export interface EssayResponse extends Message {
+  word_count: number;
+  generation_attempts: number;
+  insufficient_evidence: boolean;
+  validation_issues: string[];
+}
+
 export interface Session {
   id: string;
   model_provider: string;

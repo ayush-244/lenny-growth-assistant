@@ -1,18 +1,26 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
+import { Send, FileText } from 'lucide-react';
 
 interface ComposerProps {
   onSend: (message: string) => void;
+  onGenerateEssay?: (message: string) => void;
   disabled?: boolean;
 }
 
-export const Composer: React.FC<ComposerProps> = ({ onSend, disabled }) => {
+export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, disabled }) => {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = () => {
     if (input.trim() && !disabled) {
       onSend(input.trim());
+      setInput('');
+    }
+  };
+
+  const handleGenerateEssay = () => {
+    if (input.trim() && !disabled && onGenerateEssay) {
+      onGenerateEssay(input.trim());
       setInput('');
     }
   };
@@ -46,14 +54,27 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, disabled }) => {
           disabled={disabled}
           rows={1}
         />
-        <button
-          className="composer-send"
-          onClick={handleSubmit}
-          disabled={disabled || !input.trim()}
-          aria-label="Send message"
-        >
-          <Send size={20} />
-        </button>
+        <div className="composer-actions">
+          {onGenerateEssay && (
+            <button
+              className="composer-essay"
+              onClick={handleGenerateEssay}
+              disabled={disabled || !input.trim()}
+              aria-label="Create Ship 30 essay"
+              title="Create Ship 30 essay"
+            >
+              <FileText size={20} />
+            </button>
+          )}
+          <button
+            className="composer-send"
+            onClick={handleSubmit}
+            disabled={disabled || !input.trim()}
+            aria-label="Send message"
+          >
+            <Send size={20} />
+          </button>
+        </div>
       </div>
     </div>
   );

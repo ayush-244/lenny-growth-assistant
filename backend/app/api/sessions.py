@@ -9,9 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.agents.orchestrator import GroundedConversationalAgent
 from app.db.database import get_db
 from app.llm import LLMError
+from app.schemas.essay import EssayCreate, EssayResponse
 from app.schemas.message import MessageCreate, MessageResponse
 from app.schemas.session import SessionResponse, SessionWithMessagesResponse
 from app.services.session import SessionNotFoundError, SessionService
+from app.skills.ship30 import Ship30Skill
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -105,3 +107,95 @@ def create_message(
     )
 
     return assistant_msg
+
+
+@router.post("/{session_id}/essay", response_model=EssayResponse)
+def create_essay(
+    session_id: uuid.UUID,
+    payload: EssayCreate,
+    db=Depends(get_db),
+) -> Any:
+    """Generate a grounded Ship 30 for 30 essay from Lenny knowledge.
+
+    This endpoint:
+    1. Validates the session exists.
+    2. Saves the user essay request as a message.
+    3. Resolves the topic using the request + last 4 session messages.
+    4. Retrieves grounding evidence from the knowledge base.
+    5. Runs the Ship30Skill (up to 2 generation attempts with validation).
+    6. Persists and returns the essay as an assistant message.
+    """
+    service = SessionService(db)
+
+    # 1. Validate session
+    try:
+        service.get_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # 2. Save user essay request as a message
+    service.add_user_message(session_id, payload.content)
+
+    # 3. Load bounded recent history for context resolution
+    #    (last 4 messages, which includes the user message we just saved)
+    from app.skills.ship30 import CONVERSATION_CONTEXT_LIMIT
+    full_history = service.get_recent_history(session_id)
+    # Exclude the just-added user message from context (it IS the request)
+    if full_history and full_history[-1]["role"] == "user":
+        context_history = full_history[:-1]
+    else:
+        context_history = full_history
+    # Bound to CONVERSATION_CONTEXT_LIMIT
+    bounded_history = context_history[-CONVERSATION_CONTEXT_LIMIT:]
+
+    # 4. Run Ship30 skill
+    skill = Ship30Skill(db)
+    try:
+        result = skill.run(
+            request=payload.content,
+            recent_history=bounded_history,
+        )
+    except LLMError as exc:
+        logger.error("Ship30 LLM error session=%s: %s", session_id, exc)
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected error in Ship30 skill session=%s", session_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    # 5. Persist essay as assistant message
+    essay_msg = service.add_assistant_message(
+        session_id=session_id,
+        content=result.essay,
+        citations=[c.model_dump(mode="json") for c in result.citations],
+        grounded=result.grounded,
+        provider=result.provider,
+    )
+
+    # 6. Build extended response with Ship30 metadata
+    response_data = EssayResponse(
+        id=essay_msg.id,
+        session_id=essay_msg.session_id,
+        role=essay_msg.role,
+        content=essay_msg.content,
+        citations=essay_msg.citations,
+        grounded=essay_msg.grounded,
+        provider=essay_msg.provider,
+        created_at=essay_msg.created_at,
+        word_count=result.word_count,
+        generation_attempts=result.generation_attempts,
+        insufficient_evidence=result.insufficient_evidence,
+        validation_issues=result.validation_issues,
+    )
+
+    logger.info(
+        "Ship30 essay complete session=%s provider=%r word_count=%d "
+        "grounded=%r attempts=%d issues=%r",
+        session_id,
+        result.provider,
+        result.word_count,
+        result.grounded,
+        result.generation_attempts,
+        result.validation_issues,
+    )
+
+    return response_data

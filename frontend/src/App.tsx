@@ -123,6 +123,55 @@ export default function App() {
       setIsLoading(false);
     }
   };
+  const handleGenerateEssay = async (content: string) => {
+    let currentSessionId = activeSessionId;
+    if (!currentSessionId) {
+      try {
+        const newSession = await api.createSession();
+        currentSessionId = newSession.id;
+        setActiveSessionId(newSession.id);
+        setActiveProvider(newSession.model_provider);
+        updateSessionsList(newSession);
+        localStorage.setItem('activeSessionId', newSession.id);
+      } catch (err) {
+        setError('Unable to create a session to generate an essay.');
+        return;
+      }
+    }
+
+    const tempUserMsg: Message = {
+      id: `temp-${Date.now()}`,
+      session_id: currentSessionId,
+      role: 'user',
+      content,
+      grounded: false,
+      created_at: new Date().toISOString(),
+    };
+    
+    setMessages(prev => [...prev, tempUserMsg]);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const responseMsg = await api.generateEssay(currentSessionId, content);
+      // Ensure type checking accepts this - responseMsg is EssayResponse which extends Message
+      setMessages(prev => [...prev, responseMsg as Message]);
+      
+      if (responseMsg.provider) {
+        setActiveProvider(responseMsg.provider);
+      }
+      
+      if (messages.length === 0) {
+        setSessions(prev => 
+          prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate essay');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="app-container">
@@ -138,6 +187,7 @@ export default function App() {
         error={error}
         provider={activeProvider}
         onSendMessage={handleSendMessage}
+        onGenerateEssay={handleGenerateEssay}
       />
     </div>
   );
