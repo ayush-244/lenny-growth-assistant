@@ -244,7 +244,7 @@ def test_citation_validation_passes_for_retrieved_ids(db_session):
     skill = Ship30Skill(db_session)
     chunk_id = uuid.uuid4()
     retrieved_ids = {chunk_id}
-    cited_ids = {chunk_id}
+    cited_ids = {str(chunk_id)}
     valid, invalid = skill.validate_citations(cited_ids, retrieved_ids)
     assert valid is True
     assert invalid == []
@@ -254,11 +254,11 @@ def test_citation_validation_fails_for_fabricated_ids(db_session):
     """Citation validation fails for chunk IDs not in retrieved set."""
     skill = Ship30Skill(db_session)
     retrieved_ids = {uuid.uuid4()}
-    fabricated_id = uuid.uuid4()  # Not in retrieved set
+    fabricated_id = str(uuid.uuid4())  # Not in retrieved set
     cited_ids = {fabricated_id}
     valid, invalid = skill.validate_citations(cited_ids, retrieved_ids)
     assert valid is False
-    assert str(fabricated_id) in invalid
+    assert fabricated_id in invalid
 
 
 def test_citation_validation_empty_citations(db_session):
@@ -293,13 +293,13 @@ WORD_COUNT: 15
     essay, cited_ids, wc = skill._parse_llm_output(raw, [chunk])
 
     assert "This is the essay prose" in essay
-    assert chunk.chunk_id in cited_ids
+    assert cid in cited_ids
     # Word count is based on actual prose count, not self-reported
     assert wc > 0
 
 
-def test_parse_llm_output_ignores_invalid_citation_ids(db_session):
-    """Parser ignores chunk IDs in CITATIONS that don't match retrieved chunks."""
+def test_parse_llm_output_preserves_invalid_citation_ids(db_session):
+    """TEST 2: Parser PRESERVES chunk IDs in CITATIONS that don't match retrieved chunks."""
     skill = Ship30Skill(db_session)
     chunk = make_chunk()
     fake_id = str(uuid.uuid4())
@@ -307,8 +307,9 @@ def test_parse_llm_output_ignores_invalid_citation_ids(db_session):
     raw = f"""Essay content here.\n---\nCITATIONS: {fake_id}\nWORD_COUNT: 3\n"""
     essay, cited_ids, wc = skill._parse_llm_output(raw, [chunk])
 
-    # The fake ID should NOT be in cited_ids
-    assert len(cited_ids) == 0
+    # The fake ID MUST be in cited_ids so the validator can reject it!
+    assert len(cited_ids) == 1
+    assert fake_id in cited_ids
 
 
 # ---------------------------------------------------------------------------
@@ -474,27 +475,90 @@ def test_run_returns_best_result_after_both_failures(db_session, monkeypatch):
 # 9. Citation validation triggers regeneration
 # ---------------------------------------------------------------------------
 
-def test_run_citation_validation_rejects_fabricated_ids(db_session, monkeypatch):
-    """validate_citations directly rejects chunk IDs not in retrieved set.
-    
-    The parser silently drops fabricated IDs before validate_citations is called,
-    which is the correct safety behavior. This test verifies validate_citations
-    works correctly as the final defense layer.
-    """
+def test_run_citation_validation_rejects_fabricated_ids(db_session):
+    """TEST 2: validate_citations directly rejects chunk IDs not in retrieved set."""
     skill = Ship30Skill(db_session)
-    # Validate that a fabricated ID is rejected
     chunk = make_chunk()
     retrieved_ids = {chunk.chunk_id}
-    fabricated_id = uuid.uuid4()
+    fabricated_id = str(uuid.uuid4())
     
     valid, invalid = skill.validate_citations({fabricated_id}, retrieved_ids)
     assert valid is False
-    assert str(fabricated_id) in invalid
+    assert fabricated_id in invalid
 
-    # And that real IDs pass  
-    valid2, invalid2 = skill.validate_citations({chunk.chunk_id}, retrieved_ids)
-    assert valid2 is True
-    assert invalid2 == []
+
+def test_run_regenerates_on_citation_validation_failure(db_session, monkeypatch):
+    """TEST 3: First attempt has fabricated citation. Second attempt has valid citation."""
+    skill = Ship30Skill(db_session)
+    chunk = make_chunk()
+    skill.retriever.retrieve = MagicMock(
+        return_value=make_retrieval_response([chunk])
+    )
+
+    mock_provider = MagicMock()
+    valid_essay = make_essay_prose(WORD_COUNT_TARGET)
+    cid = str(chunk.chunk_id)
+    fabricated_id = str(uuid.uuid4())
+
+    mock_provider.chat.side_effect = [
+        LLMResponse(
+            content=f"{valid_essay}\n---\nCITATIONS: {fabricated_id}\nWORD_COUNT: {WORD_COUNT_TARGET}",
+            provider="test_provider",
+            model="test_model",
+        ),
+        LLMResponse(
+            content=f"{valid_essay}\n---\nCITATIONS: {cid}\nWORD_COUNT: {WORD_COUNT_TARGET}",
+            provider="test_provider",
+            model="test_model",
+        ),
+    ]
+    monkeypatch.setattr("app.skills.ship30.get_llm_provider", lambda name: mock_provider)
+
+    result = skill.run("Write an essay")
+
+    assert mock_provider.chat.call_count == 2
+    assert result.generation_attempts == 2
+    assert len(result.citations) > 0
+    assert result.citations[0].chunk_id == chunk.chunk_id
+    assert "invalid_citations" not in str(result.validation_issues)
+    assert result.grounded is True
+
+
+def test_run_fails_after_two_invalid_citations(db_session, monkeypatch):
+    """TEST 4 & 5: Both attempts contain fabricated citations. Final response strips unsupported claim."""
+    skill = Ship30Skill(db_session)
+    chunk = make_chunk()
+    skill.retriever.retrieve = MagicMock(
+        return_value=make_retrieval_response([chunk])
+    )
+
+    mock_provider = MagicMock()
+    # "According to Lenny, X..." with invalid citation
+    bad_essay = make_essay_prose(WORD_COUNT_TARGET) + " According to Lenny, X..."
+    fabricated_id = str(uuid.uuid4())
+
+    mock_provider.chat.return_value = LLMResponse(
+        content=f"{bad_essay}\n---\nCITATIONS: {fabricated_id}\nWORD_COUNT: {WORD_COUNT_TARGET}",
+        provider="test_provider",
+        model="test_model",
+    )
+    monkeypatch.setattr("app.skills.ship30.get_llm_provider", lambda name: mock_provider)
+
+    result = skill.run("Write an essay")
+
+    assert mock_provider.chat.call_count == 2
+    assert result.generation_attempts == 2
+    
+    # Validation failure is recorded
+    assert any("invalid_citations" in issue for issue in result.validation_issues)
+    
+    # Final response does NOT contain unsupported source-backed prose
+    assert "According to Lenny, X..." not in result.essay
+    assert "discarded" in result.essay.lower() or "failed" in result.essay.lower()
+    
+    # No fake citation is returned
+    assert len(result.citations) == 0
+    assert result.grounded is False
 
 
 

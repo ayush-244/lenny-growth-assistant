@@ -294,28 +294,29 @@ class Ship30Skill:
 
     def validate_citations(
         self,
-        cited_ids: set[uuid.UUID],
+        cited_ids: set[str],
         retrieved_ids: set[uuid.UUID],
     ) -> tuple[bool, list[str]]:
         """Validate that all cited chunk IDs exist in the retrieved set.
 
         Parameters
         ----------
-        cited_ids: chunk_ids referenced by the LLM in the essay.
+        cited_ids: chunk_ids referenced by the LLM in the essay as strings.
         retrieved_ids: chunk_ids that were actually retrieved for this request.
 
         Returns
         -------
         tuple[bool, list[str]]: (all_valid, list_of_invalid_ids_as_strings)
         """
-        invalid = cited_ids - retrieved_ids
-        return len(invalid) == 0, [str(i) for i in invalid]
+        retrieved_id_strs = {str(uid) for uid in retrieved_ids}
+        invalid = cited_ids - retrieved_id_strs
+        return len(invalid) == 0, list(invalid)
 
     def _parse_llm_output(
         self,
         raw: str,
         retrieved_chunks: list[RetrievalResult],
-    ) -> tuple[str, set[uuid.UUID], int]:
+    ) -> tuple[str, set[str], int]:
         """Parse LLM output into (essay_prose, cited_chunk_ids, word_count).
 
         The LLM is instructed to end its output with:
@@ -330,17 +331,12 @@ class Ship30Skill:
 
         Returns
         -------
-        tuple[str, set[uuid.UUID], int]:
-            (essay_prose, set_of_cited_chunk_uuids, self_reported_or_counted_word_count)
+        tuple[str, set[str], int]:
+            (essay_prose, set_of_cited_chunk_ids_as_strings, self_reported_or_counted_word_count)
         """
-        # Build lookup of valid chunk_id strings → UUID
-        valid_ids: dict[str, uuid.UUID] = {
-            str(c.chunk_id): c.chunk_id for c in retrieved_chunks
-        }
-
         # Split on the separator "---" (or just look for CITATIONS: line)
         essay_part = raw
-        cited_ids: set[uuid.UUID] = set()
+        cited_ids: set[str] = set()
 
         # Try to find and parse CITATIONS line
         lines = raw.split("\n")
@@ -355,8 +351,8 @@ class Ship30Skill:
                     raw_ids = stripped.replace("CITATIONS:", "").strip()
                     for part in raw_ids.split(","):
                         cid = part.strip()
-                        if cid in valid_ids:
-                            cited_ids.add(valid_ids[cid])
+                        if cid:
+                            cited_ids.add(cid)
             else:
                 essay_lines.append(line)
 
@@ -505,7 +501,7 @@ class Ship30Skill:
 
             # Resolve cited chunks to RetrievalResult objects
             cited_chunks: list[RetrievalResult] = [
-                r for r in evidence if r.chunk_id in cited_ids
+                r for r in evidence if str(r.chunk_id) in cited_ids
             ]
             # If no citations were parsed, attribute all retrieved chunks
             # (conservative: don't return zero citations for a grounded essay)
@@ -564,6 +560,20 @@ class Ship30Skill:
         # --- Both attempts exhausted — return best result with issues recorded ---
         assert best_result is not None
         elapsed_ms = (time.perf_counter() - t0) * 1000
+
+        # PROSE SAFETY REQUIREMENT
+        # If the best result failed citation validation, we cannot safely return the prose.
+        failed_citation_val = any("invalid_citations" in issue for issue in best_result.validation_issues)
+        if failed_citation_val:
+            best_result.essay = (
+                "Generation failed: The model repeatedly produced claims backed by fabricated citations "
+                "that were not present in the retrieved evidence. To ensure strict grounding, "
+                "the unsupported essay has been discarded."
+            )
+            best_result.word_count = self._count_words(best_result.essay)
+            best_result.citations = []
+            best_result.grounded = False
+
         logger.warning(
             "Ship30: all %d attempts failed validation. Returning best result. "
             "provider=%r word_count=%d citations=%d issues=%r latency_ms=%.1f",
