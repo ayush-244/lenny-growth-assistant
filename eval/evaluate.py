@@ -90,12 +90,43 @@ class DeterministicMockProvider(LLMProvider):
                 if t.get("name") == "retrieve_knowledge" or t.get("function", {}).get("name") == "retrieve_knowledge":
                     has_retrieval_tool = True
                     break
+
+        if "brian chesky" in user_prompt:
+            if tool_executor and has_retrieval_tool:
+                tool_executor("retrieve_knowledge", {"query": "brian chesky airbnb growth"})
+            return LLMResponse(
+                content="Brian Chesky approached Airbnb's early growth by doing X. [00000000-0000-0000-0000-000000000001]",
+                provider="mock",
+                model="mock",
+                tool_calls_made=1
+            )
+
+        if "invalid id behavior" in user_prompt:
+            if tool_executor and has_retrieval_tool:
+                tool_executor("retrieve_knowledge", {"query": "test"})
+            return LLMResponse(
+                content="This cites a fake ID. [99999999-9999-9999-9999-999999999999]",
+                provider="mock",
+                model="mock",
+                tool_calls_made=1
+            )
+
+        if "no citation behavior" in user_prompt:
+            if tool_executor and has_retrieval_tool:
+                tool_executor("retrieve_knowledge", {"query": "test"})
+            return LLMResponse(
+                content="This is an answer with no citations.",
+                provider="mock",
+                model="mock",
+                tool_calls_made=1
+            )
+
         if tool_executor and has_retrieval_tool:
             tool_executor("retrieve_knowledge", {"query": "test"})
 
         # Standard factual
         return LLMResponse(
-            content="Brian Chesky said X. [00000000-0000-0000-0000-000000000001]",
+            content="Alex Rivera said X about pricing. [00000000-0000-0000-0000-000000000001]",
             provider="mock",
             model="mock",
             tool_calls_made=1
@@ -213,13 +244,19 @@ def run_evaluation():
                 data = res.json()
 
                 if qid == "case_a_factual" or qid == "case_b_multiturn":
-                    assert data["grounded"] is True, "Expected grounded=True"
-                    assert "00000000-0000-0000-0000-000000000001" in data["content"], "Expected citation in content"
+                    assert data["grounded"] is True, f"Expected grounded=True for {qid}"
+                    assert "00000000-0000-0000-0000-000000000001" in data["content"], f"Expected citation in content for {qid}"
                     results["groundedness"]["grounded"] += 1
 
                 if qid == "case_c_insufficient":
                     assert data["grounded"] is False, "Expected grounded=False for out of corpus"
                     assert "00000000" not in data["content"], "Should not have citations"
+                    results["groundedness"]["insufficient_context"] += 1
+
+                if qid in ["case_j_unsupported", "case_k_invalid_id", "case_l_no_citation"]:
+                    assert data["grounded"] is False, f"Expected grounded=False for {qid}"
+                    assert len(data.get("citations", [])) == 0, f"Expected citations=[] for {qid}"
+                    assert "I don't have enough evidence" in data["content"], f"Expected fallback response for {qid}"
                     results["groundedness"]["insufficient_context"] += 1
 
                 print(f"PASS {qid}")

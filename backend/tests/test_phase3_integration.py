@@ -77,8 +77,11 @@ def test_end_to_end_conversational_flow(client, db_session, test_data, monkeypat
         # so the deterministic provider gives similarity = 1.0.
         result = tool_executor("retrieve_knowledge", {"query": CHUNK_CONTENT})
         assert "retention" in result
-        
-        # Then return the final answer
+
+        # Then return the final answer, ensuring we include the chunk ID so it's parsed as grounded!
+        chunk_id = db_session.query(Chunk).filter(Chunk.content == CHUNK_CONTENT).first().id
+        mock_provider.chat.return_value.content = f"Based on the episode, retention is key. [{chunk_id}]"
+
         return mock_provider.chat.return_value
 
     mock_provider.chat.side_effect = side_effect
@@ -97,7 +100,7 @@ def test_end_to_end_conversational_flow(client, db_session, test_data, monkeypat
     data = msg_resp.json()
     
     assert data["role"] == "assistant"
-    assert data["content"] == "Based on the episode, retention is key."
+    assert "Based on the episode, retention is key." in data["content"]
     assert data["grounded"] is True
     assert len(data["citations"]) == 1
     assert data["citations"][0]["title"] == "Test Episode"

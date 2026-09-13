@@ -1,6 +1,6 @@
 import React from 'react';
 import type { Citation } from '../types';
-import { BookOpen, Clock, User } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 interface CitationListProps {
   citations: Citation[];
@@ -21,32 +21,34 @@ export const CitationList: React.FC<CitationListProps> = ({ citations }) => {
   return (
     <div className="citations-container">
       <div className="citations-title">
-        <BookOpen size={14} /> Sources
+        Citations ({citations.length})
       </div>
       <div className="citations-list">
         {citations.map((citation, idx) => {
           const tStart = formatTimestamp(citation.timestamp_start);
           const tEnd = formatTimestamp(citation.timestamp_end);
-          const timeRange = tStart ? `${tStart}${tEnd ? `–${tEnd}` : ''}` : null;
+          const timeRange = tStart ? `${tStart}${tEnd ? ` – ${tEnd}` : ''}` : null;
+          const similarity =
+            typeof citation.similarity_score === 'number' ? citation.similarity_score : null;
 
           return (
             <div key={`${citation.chunk_id}-${idx}`} className="citation-card">
-              <div className="citation-header">{citation.title}</div>
-              <div className="citation-meta">
-                {citation.guest_name && (
-                  <span className="citation-meta-item">
-                    <User size={12} /> {citation.guest_name}
-                  </span>
-                )}
-                {timeRange && (
-                  <span className="citation-meta-item">
-                    <Clock size={12} /> {timeRange}
-                  </span>
+              <div className="citation-icon">
+                <FileText size={16} />
+              </div>
+              <div className="citation-body">
+                <div className="citation-header">{citation.title}</div>
+                <div className="citation-meta">
+                  {citation.guest_name || 'Lenny’s Podcast'}
+                  {timeRange ? ` · ${timeRange}` : ''}
+                </div>
+                {similarity != null && (
+                  <div className="citation-similarity">Similarity: {similarity.toFixed(3)}</div>
                 )}
                 {citation.source_url && (
-                  <a 
-                    href={citation.source_url} 
-                    target="_blank" 
+                  <a
+                    href={citation.source_url}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="citation-link"
                   >

@@ -6,6 +6,8 @@ export interface Citation {
   source_url?: string | null;
   timestamp_start?: number | null;
   timestamp_end?: number | null;
+  /** Present only if the API includes it; never invented client-side. */
+  similarity_score?: number | null;
 }
 
 export interface Message {

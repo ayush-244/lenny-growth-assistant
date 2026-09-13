@@ -1,8 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
 import { ArtifactPanel } from './components/ArtifactPanel';
-import type { Session, Message, SessionWithMessages, Artifact, ArtifactType } from './types';
+import { AppShell } from './components/layout/AppShell';
+import { TopNav, type AppView } from './components/layout/TopNav';
+import { SourcesPanel } from './components/sources/SourcesPanel';
+import { KnowledgeView, HistoryView, ArtifactsView } from './components/layout/SecondaryViews';
+import type { Session, Message, SessionWithMessages, Artifact, ArtifactType, Citation } from './types';
 import { api } from './api';
 
 export default function App() {
@@ -11,16 +15,20 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // Artifact State
+  const [lastFailedPrompt, setLastFailedPrompt] = useState<string | null>(null);
+
   const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
   const [isArtifactLoading, setIsArtifactLoading] = useState(false);
   const [artifactError, setArtifactError] = useState<string | null>(null);
+  const [sessionArtifacts, setSessionArtifacts] = useState<Artifact[]>([]);
+  const [artifactsLoading, setArtifactsLoading] = useState(false);
+  const [artifactsListError, setArtifactsListError] = useState<string | null>(null);
 
-  // Track active provider for the UI based on session or latest message
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<AppView>('chat');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
-  // Initialize: load active session from local storage or wait for user to create one
   useEffect(() => {
     const savedSessionId = localStorage.getItem('activeSessionId');
     if (savedSessionId) {
@@ -39,8 +47,10 @@ export default function App() {
   const loadSession = async (sessionId: string) => {
     setIsLoading(true);
     setError(null);
-    setActiveArtifact(null); // Reset artifact on session change
+    setActiveArtifact(null);
     setArtifactError(null);
+    setSidebarOpen(false);
+    setActiveView('chat');
     try {
       const sessionData: SessionWithMessages = await api.getSession(sessionId);
       setMessages(sessionData.messages || []);
@@ -65,6 +75,7 @@ export default function App() {
     setError(null);
     setActiveArtifact(null);
     setArtifactError(null);
+    setActiveView('chat');
     try {
       const newSession = await api.createSession();
       setMessages([]);
@@ -79,24 +90,27 @@ export default function App() {
     }
   };
 
+  const ensureSession = async (): Promise<string | null> => {
+    if (activeSessionId) return activeSessionId;
+    try {
+      const newSession = await api.createSession();
+      setActiveSessionId(newSession.id);
+      setActiveProvider(newSession.model_provider);
+      updateSessionsList(newSession);
+      localStorage.setItem('activeSessionId', newSession.id);
+      return newSession.id;
+    } catch (err) {
+      return null;
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
-    // If no active session, create one first implicitly
-    let currentSessionId = activeSessionId;
+    const currentSessionId = await ensureSession();
     if (!currentSessionId) {
-      try {
-        const newSession = await api.createSession();
-        currentSessionId = newSession.id;
-        setActiveSessionId(newSession.id);
-        setActiveProvider(newSession.model_provider);
-        updateSessionsList(newSession);
-        localStorage.setItem('activeSessionId', newSession.id);
-      } catch (err) {
-        setError('Unable to create a session to send your message.');
-        return;
-      }
+      setError('Unable to create a session to send your message.');
+      return;
     }
 
-    // Optimistically add user message
     const tempUserMsg: Message = {
       id: `temp-${Date.now()}`,
       session_id: currentSessionId,
@@ -105,22 +119,24 @@ export default function App() {
       grounded: false,
       created_at: new Date().toISOString(),
     };
-    
+
     setMessages(prev => [...prev, tempUserMsg]);
     setIsLoading(true);
     setError(null);
+    setLastFailedPrompt(content);
+    setActiveView('chat');
 
     try {
       const responseMsg = await api.sendMessage(currentSessionId, content);
       setMessages(prev => [...prev, responseMsg]);
-      
-      // Update provider if it changed
+      setLastFailedPrompt(null);
+
       if (responseMsg.provider) {
         setActiveProvider(responseMsg.provider);
       }
-      
+
       if (messages.length === 0) {
-        setSessions(prev => 
+        setSessions(prev =>
           prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
         );
       }
@@ -132,19 +148,10 @@ export default function App() {
   };
 
   const handleGenerateEssay = async (content: string) => {
-    let currentSessionId = activeSessionId;
+    const currentSessionId = await ensureSession();
     if (!currentSessionId) {
-      try {
-        const newSession = await api.createSession();
-        currentSessionId = newSession.id;
-        setActiveSessionId(newSession.id);
-        setActiveProvider(newSession.model_provider);
-        updateSessionsList(newSession);
-        localStorage.setItem('activeSessionId', newSession.id);
-      } catch (err) {
-        setError('Unable to create a session to generate an essay.');
-        return;
-      }
+      setError('Unable to create a session to generate an essay.');
+      return;
     }
 
     const tempUserMsg: Message = {
@@ -155,21 +162,24 @@ export default function App() {
       grounded: false,
       created_at: new Date().toISOString(),
     };
-    
+
     setMessages(prev => [...prev, tempUserMsg]);
     setIsLoading(true);
     setError(null);
+    setLastFailedPrompt(content);
+    setActiveView('chat');
 
     try {
       const responseMsg = await api.generateEssay(currentSessionId, content);
       setMessages(prev => [...prev, responseMsg as Message]);
-      
+      setLastFailedPrompt(null);
+
       if (responseMsg.provider) {
         setActiveProvider(responseMsg.provider);
       }
-      
+
       if (messages.length === 0) {
-        setSessions(prev => 
+        setSessions(prev =>
           prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
         );
       }
@@ -181,19 +191,10 @@ export default function App() {
   };
 
   const handleGenerateArtifact = async (content: string, type: ArtifactType) => {
-    let currentSessionId = activeSessionId;
+    const currentSessionId = await ensureSession();
     if (!currentSessionId) {
-      try {
-        const newSession = await api.createSession();
-        currentSessionId = newSession.id;
-        setActiveSessionId(newSession.id);
-        setActiveProvider(newSession.model_provider);
-        updateSessionsList(newSession);
-        localStorage.setItem('activeSessionId', newSession.id);
-      } catch (err) {
-        setArtifactError('Unable to create a session to generate an artifact.');
-        return;
-      }
+      setArtifactError('Unable to create a session to generate an artifact.');
+      return;
     }
 
     const tempUserMsg: Message = {
@@ -204,22 +205,23 @@ export default function App() {
       grounded: false,
       created_at: new Date().toISOString(),
     };
-    
+
     setMessages(prev => [...prev, tempUserMsg]);
     setIsArtifactLoading(true);
     setArtifactError(null);
     setActiveArtifact(null);
+    setActiveView('chat');
 
     try {
       const artifact = await api.generateArtifact(currentSessionId, content, type);
       setActiveArtifact(artifact);
-      
+
       if (artifact.provider) {
         setActiveProvider(artifact.provider);
       }
-      
+
       if (messages.length === 0) {
-        setSessions(prev => 
+        setSessions(prev =>
           prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
         );
       }
@@ -230,25 +232,95 @@ export default function App() {
     }
   };
 
-  return (
-    <div className="app-container">
-      <Sidebar
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelectSession={loadSession}
-        onNewSession={handleNewSession}
+  const loadArtifacts = async (sessionId: string) => {
+    setArtifactsLoading(true);
+    setArtifactsListError(null);
+    try {
+      const items = await api.listArtifacts(sessionId);
+      setSessionArtifacts(items);
+    } catch (err) {
+      setArtifactsListError(err instanceof Error ? err.message : 'Failed to load artifacts');
+    } finally {
+      setArtifactsLoading(false);
+    }
+  };
+
+  const handleChangeView = (view: AppView) => {
+    setActiveView(view);
+    if (view === 'artifacts' && activeSessionId) {
+      loadArtifacts(activeSessionId);
+    }
+  };
+
+  const latestCitations: Citation[] = [...messages]
+    .reverse()
+    .find((m) => m.role === 'assistant' && m.citations && m.citations.length > 0)
+    ?.citations ?? [];
+
+  const artifactOpen = Boolean(activeArtifact || isArtifactLoading || artifactError);
+  const sourcesVisible = activeView === 'chat' && !artifactOpen;
+
+  const focusComposer = () => {
+    setActiveView('chat');
+    window.setTimeout(() => composerRef.current?.focus(), 0);
+  };
+
+  let mainContent: React.ReactNode = (
+    <ChatArea
+      messages={messages}
+      isLoading={isLoading}
+      error={error}
+      onSendMessage={handleSendMessage}
+      onGenerateEssay={handleGenerateEssay}
+      onGenerateArtifact={handleGenerateArtifact}
+      onRetry={lastFailedPrompt ? () => handleSendMessage(lastFailedPrompt) : undefined}
+      inputRef={composerRef}
+    />
+  );
+
+  if (activeView === 'knowledge') {
+    mainContent = <KnowledgeView />;
+  } else if (activeView === 'history') {
+    mainContent = <HistoryView sessions={sessions} onSelectSession={loadSession} />;
+  } else if (activeView === 'artifacts') {
+    mainContent = (
+      <ArtifactsView
+        artifacts={sessionArtifacts}
+        isLoading={artifactsLoading}
+        error={artifactsListError}
+        hasSession={Boolean(activeSessionId)}
+        onOpen={(artifact) => {
+          setActiveArtifact(artifact);
+          setActiveView('chat');
+        }}
       />
-      <div className={`main-content ${activeArtifact || isArtifactLoading || artifactError ? 'with-artifact' : ''}`}>
-        <ChatArea
-          messages={messages}
-          isLoading={isLoading}
-          error={error}
-          provider={activeProvider}
-          onSendMessage={handleSendMessage}
-          onGenerateEssay={handleGenerateEssay}
-          onGenerateArtifact={handleGenerateArtifact}
+    );
+  }
+
+  return (
+    <AppShell
+      sidebarOpen={sidebarOpen}
+      onCloseSidebar={() => setSidebarOpen(false)}
+      sidebar={
+        <Sidebar
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={loadSession}
+          onNewSession={handleNewSession}
         />
-        {(activeArtifact || isArtifactLoading || artifactError) && (
+      }
+      topNav={
+        <TopNav
+          activeView={activeView}
+          onChangeView={handleChangeView}
+          provider={activeProvider}
+          onToggleSidebar={() => setSidebarOpen((open) => !open)}
+        />
+      }
+      sourcesVisible={sourcesVisible}
+      sources={<SourcesPanel citations={latestCitations} onFocusComposer={focusComposer} />}
+      artifact={
+        artifactOpen ? (
           <ArtifactPanel
             artifact={activeArtifact}
             isLoading={isArtifactLoading}
@@ -259,8 +331,10 @@ export default function App() {
               setArtifactError(null);
             }}
           />
-        )}
-      </div>
-    </div>
+        ) : null
+      }
+    >
+      {mainContent}
+    </AppShell>
   );
 }

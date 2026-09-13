@@ -2,13 +2,13 @@
   {
     "id": "case_a_factual",
     "type": "message",
-    "query": "What did Brian Chesky say about Airbnb's early growth?",
+    "query": "What did Alex Rivera say about pricing strategy?",
     "description": "Direct factual retrieval"
   },
   {
     "id": "case_b_multiturn",
     "type": "message",
-    "query": "Can you elaborate more on what Brian said?",
+    "query": "Can you elaborate more on what he said about pricing?",
     "description": "Multi-turn context"
   },
   {
@@ -16,6 +16,24 @@
     "type": "message",
     "query": "What does Lenny think about the latest SpaceX launch?",
     "description": "Insufficient evidence"
+  },
+  {
+    "id": "case_j_unsupported",
+    "type": "message",
+    "query": "What was Brian Chesky's approach to early Airbnb growth?",
+    "description": "Unsupported question testing citation mismatch"
+  },
+  {
+    "id": "case_k_invalid_id",
+    "type": "message",
+    "query": "Test invalid id behavior",
+    "description": "LLM cites an ID that was NOT retrieved"
+  },
+  {
+    "id": "case_l_no_citation",
+    "type": "message",
+    "query": "Test no citation behavior",
+    "description": "LLM produces an answer with no citation"
   },
   {
     "id": "case_d_ship30",

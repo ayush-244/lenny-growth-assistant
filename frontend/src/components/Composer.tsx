@@ -1,16 +1,25 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, FileText, Layout, Code } from 'lucide-react';
+import { Send, FileText, Layout, Code, Paperclip, BookOpen } from 'lucide-react';
 
 interface ComposerProps {
   onSend: (message: string) => void;
   onGenerateEssay?: (message: string) => void;
   onGenerateArtifact?: (message: string, type: 'markdown' | 'html') => void;
   disabled?: boolean;
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onGenerateArtifact, disabled }) => {
+export const Composer: React.FC<ComposerProps> = ({
+  onSend,
+  onGenerateEssay,
+  onGenerateArtifact,
+  disabled,
+  inputRef,
+}) => {
   const [input, setInput] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [groundedOnly, setGroundedOnly] = useState(true);
+  const localRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = inputRef ?? localRef;
 
   const handleSubmit = () => {
     if (input.trim() && !disabled) {
@@ -40,18 +49,27 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onG
     }
   };
 
-  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = '56px';
       const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = scrollHeight > 56 ? `${Math.min(scrollHeight, 200)}px` : '56px';
+      textareaRef.current.style.height =
+        scrollHeight > 56 ? `${Math.min(scrollHeight, 200)}px` : '56px';
     }
-  }, [input]);
+  }, [input, textareaRef]);
 
   return (
     <div className="composer-container">
       <div className="composer-inner">
+        <button
+          type="button"
+          className="composer-attach"
+          disabled
+          title="File attachments are not available yet"
+          aria-label="Attach document"
+        >
+          <Paperclip size={18} />
+        </button>
         <textarea
           ref={textareaRef}
           className="composer-textarea"
@@ -70,8 +88,9 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onG
               disabled={disabled || !input.trim()}
               aria-label="Create Ship 30 essay"
               title="Create Ship 30 essay"
+              type="button"
             >
-              <FileText size={20} />
+              <FileText size={18} />
             </button>
           )}
           {onGenerateArtifact && (
@@ -82,8 +101,9 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onG
                 disabled={disabled || !input.trim()}
                 aria-label="Create Markdown Artifact"
                 title="Create Markdown Artifact"
+                type="button"
               >
-                <Layout size={20} />
+                <Layout size={18} />
               </button>
               <button
                 className="composer-artifact html"
@@ -91,18 +111,31 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onG
                 disabled={disabled || !input.trim()}
                 aria-label="Create HTML Artifact"
                 title="Create HTML Artifact"
+                type="button"
               >
-                <Code size={20} />
+                <Code size={18} />
               </button>
             </>
           )}
+          <label className="grounded-toggle" title="The assistant already answers from the knowledge base">
+            <BookOpen size={16} />
+            <span>Grounded answers only</span>
+            <input
+              type="checkbox"
+              checked={groundedOnly}
+              onChange={(e) => setGroundedOnly(e.target.checked)}
+              aria-label="Grounded answers only"
+            />
+            <span className={`switch ${groundedOnly ? 'on' : ''}`} />
+          </label>
           <button
             className="composer-send"
             onClick={handleSubmit}
             disabled={disabled || !input.trim()}
             aria-label="Send message"
+            type="button"
           >
-            <Send size={20} />
+            <Send size={18} />
           </button>
         </div>
       </div>

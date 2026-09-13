@@ -12,33 +12,15 @@ from app.schemas.retrieval import RetrievalResult
 def test_agent_successful_turn(db_session, monkeypatch):
     """Test a successful agent turn with retrieval and citations."""
     
-    # Mock LLM Router to return a deterministic provider
-    mock_provider = MagicMock()
-    def side_effect(messages, system_prompt, tools, tool_executor):
-        # Simulate LLM deciding to call a tool
-        tool_executor("retrieve_knowledge", {"query": "retention"})
-        return LLMResponse(
-            content="Lenny says retention is key.",
-            provider="test_provider",
-            model="test_model",
-            tool_calls_made=1
-        )
-        
-    mock_provider.chat.side_effect = side_effect
-    
-    monkeypatch.setattr(
-        "app.agents.orchestrator.get_llm_provider",
-        lambda name: mock_provider
-    )
-    
     # Init agent
     agent = GroundedConversationalAgent(db_session)
     
     from app.schemas.retrieval import RetrievalResponse
     # Mock retriever
+    test_chunk_id = uuid.uuid4()
     mock_results = [
         RetrievalResult(
-            chunk_id=uuid.uuid4(),
+            chunk_id=test_chunk_id,
             transcript_id=uuid.uuid4(),
             chunk_index=0,
             episode_id="ep-123",
@@ -58,11 +40,30 @@ def test_agent_successful_turn(db_session, monkeypatch):
         threshold_applied=0.35
     )
     agent.retriever.retrieve = MagicMock(return_value=mock_response)
+
+    # Mock LLM Router to return a deterministic provider
+    mock_provider = MagicMock()
+    def side_effect(messages, system_prompt, tools, tool_executor):
+        # Simulate LLM deciding to call a tool
+        tool_executor("retrieve_knowledge", {"query": "retention"})
+        return LLMResponse(
+            content=f"Lenny says retention is key. [{test_chunk_id}]",
+            provider="test_provider",
+            model="test_model",
+            tool_calls_made=1
+        )
+
+    mock_provider.chat.side_effect = side_effect
+
+    monkeypatch.setattr(
+        "app.agents.orchestrator.get_llm_provider",
+        lambda name: mock_provider
+    )
     
     # Now call the agent (the mock provider side_effect invokes the tool and returns the response)
     result = agent.answer_question("What is the key to growth?")
     
-    assert result["answer"] == "Lenny says retention is key."
+    assert result["answer"] == f"Lenny says retention is key. [{test_chunk_id}]"
     assert result["grounded"] is True
     assert len(result["citations"]) == 1
     assert result["citations"][0]["episode_id"] == "ep-123"

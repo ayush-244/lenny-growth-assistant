@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Artifact } from '../types';
 import { ArtifactViewer } from './ArtifactViewer';
+import { X } from 'lucide-react';
 
 interface ArtifactPanelProps {
   artifact: Artifact | null;
@@ -29,21 +30,26 @@ export const ArtifactPanel: React.FC<ArtifactPanelProps> = ({
           )}
         </div>
         <button className="close-btn" onClick={onClose} aria-label="Close artifact">
-          ?
+          <X size={18} />
         </button>
       </div>
 
       <div className="artifact-body">
         {isLoading && (
           <div className="artifact-loading">
-            <div className="spinner"></div>
+            <div className="typing-indicator">
+              <div className="typing-dot" />
+              <div className="typing-dot" />
+              <div className="typing-dot" />
+            </div>
             <p>Generating your artifact. This may take a moment...</p>
           </div>
         )}
 
         {error && (
           <div className="artifact-error">
-            <strong>Error:</strong> {error}
+            <strong>Something went wrong</strong>
+            <p>I couldn’t complete that request right now.</p>
           </div>
         )}
 

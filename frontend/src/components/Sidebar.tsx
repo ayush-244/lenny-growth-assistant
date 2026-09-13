@@ -1,6 +1,9 @@
 import React from 'react';
-import { Plus, MessageSquare } from 'lucide-react';
+import { Plus, MessageSquare, ChevronDown } from 'lucide-react';
 import type { Session } from '../types';
+import { LennyLogo } from './branding/LennyLogo';
+import { QuoteCard } from './branding/QuoteCard';
+import { formatRelativeTime } from '../lib/format';
 
 interface SidebarProps {
   sessions: Session[];
@@ -16,21 +19,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewSession,
 }) => {
   return (
-    <div className="sidebar">
+    <aside className="sidebar">
       <div className="sidebar-header">
         <div className="brand">
-          <MessageSquare size={20} />
-          Lenny Growth Assistant
+          <LennyLogo size={40} />
+          <div className="brand-copy">
+            <p className="brand-name">Lenny</p>
+            <p className="brand-product">Growth Assistant</p>
+          </div>
         </div>
+        <p className="brand-tagline">Learn. Build. Grow.</p>
       </div>
-      
-      <button className="new-chat-btn" onClick={onNewSession}>
-        <Plus size={16} /> New conversation
+
+      <button className="new-chat-btn" onClick={onNewSession} type="button">
+        <Plus size={18} /> New conversation
       </button>
 
       <ul className="session-list">
         {sessions.map((session, index) => {
-          // Derive a simple title if none exists
           const title = session.metadata_?.title || `Conversation ${sessions.length - index}`;
           return (
             <li
@@ -38,12 +44,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}
               onClick={() => onSelectSession(session.id)}
             >
-              <MessageSquare size={14} />
-              {title}
+              <MessageSquare size={16} />
+              <div className="session-copy">
+                <span className="session-title">{title}</span>
+                <span className="session-time">{formatRelativeTime(session.updated_at || session.created_at)}</span>
+              </div>
             </li>
           );
         })}
       </ul>
-    </div>
+
+      <QuoteCard />
+
+      <div className="sidebar-user">
+        <span className="avatar">A</span>
+        <div className="sidebar-user-copy">
+          <span className="user-chip-name">Ayush</span>
+          <span className="user-email">ayush@example.com</span>
+        </div>
+        <ChevronDown size={16} />
+      </div>
+    </aside>
   );
 };
