@@ -79,8 +79,7 @@ def test_end_to_end_conversational_flow(client, db_session, test_data, monkeypat
         assert "retention" in result
 
         # Then return the final answer, ensuring we include the chunk ID so it's parsed as grounded!
-        chunk_id = db_session.query(Chunk).filter(Chunk.content == CHUNK_CONTENT).first().id
-        mock_provider.chat.return_value.content = f"Based on the episode, retention is key. [{chunk_id}]"
+        mock_provider.chat.return_value.content = "Based on the episode, retention is key. [REF-1]"
 
         return mock_provider.chat.return_value
 

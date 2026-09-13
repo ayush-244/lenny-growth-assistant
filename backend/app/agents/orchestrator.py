@@ -21,6 +21,7 @@ from app.agents.grounding import (
     RETRIEVE_KNOWLEDGE_TOOL_ANTHROPIC,
     RETRIEVE_KNOWLEDGE_TOOL_OLLAMA,
     build_retrieval_context,
+    extract_ref_citations,
 )
 from app.core.config import settings
 from app.llm import LLMError, get_llm_provider
@@ -46,6 +47,15 @@ class GroundedConversationalAgent:
 
         # Store citations collected during the current agent turn.
         self._current_turn_citations: list[RetrievalResult] = []
+
+        # REF-N → RetrievalResult mapping for the current turn.
+        # Built incrementally as the retrieval tool is called (possibly
+        # multiple times).
+        self._ref_mapping: dict[str, RetrievalResult] = {}
+
+        # Next REF number to assign (increases across multiple tool calls
+        # within the same turn so labels remain unique).
+        self._next_ref_index: int = 1
 
     def answer_question(
         self,
@@ -90,8 +100,10 @@ class GroundedConversationalAgent:
         elif provider_name == "ollama":
             tools = [RETRIEVE_KNOWLEDGE_TOOL_OLLAMA]
 
-        # Reset citations for this turn.
+        # Reset per-turn state.
         self._current_turn_citations = []
+        self._ref_mapping = {}
+        self._next_ref_index = 1
 
         try:
             logger.info(
@@ -106,6 +118,7 @@ class GroundedConversationalAgent:
                 tool_executor=self._execute_tool,
             )
 
+
         except LLMError as exc:
             logger.error(
                 "Agent LLM error: %s",
@@ -113,13 +126,19 @@ class GroundedConversationalAgent:
             )
             raise
 
-        # Keep only retrieved chunks that the LLM explicitly cited
-        # using their exact chunk IDs.
-        valid_citations: list[RetrievalResult] = []
+        # --- Citation verification using REF-N tokens ---
+        # Parse [REF-N] tokens from the model's response.
+        cited_refs = extract_ref_citations(response.content)
 
-        for chunk in self._current_turn_citations:
-            if str(chunk.chunk_id) in response.content:
-                valid_citations.append(chunk)
+        # Map valid REF-N labels back to original RetrievalResult objects.
+        valid_citations: list[RetrievalResult] = []
+        seen_chunk_ids: set[Any] = set()
+
+        for ref_label in sorted(cited_refs):
+            result = self._ref_mapping.get(ref_label)
+            if result is not None and result.chunk_id not in seen_chunk_ids:
+                valid_citations.append(result)
+                seen_chunk_ids.add(result.chunk_id)
 
         self._current_turn_citations = valid_citations
 
@@ -236,6 +255,17 @@ class GroundedConversationalAgent:
             results.total_found,
         )
 
-        return build_retrieval_context(
-            results.results
+        # Build context with REF-N labels, starting from the current
+        # index so multiple tool calls produce non-overlapping refs.
+        context, new_mapping = build_retrieval_context(
+            results.results,
+            start_index=self._next_ref_index,
         )
+
+        # Merge the new mapping into the turn-level mapping.
+        self._ref_mapping.update(new_mapping)
+
+        # Advance the index for any subsequent tool calls.
+        self._next_ref_index += len(results.results)
+
+        return context

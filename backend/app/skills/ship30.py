@@ -38,7 +38,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as DbSession
 
-from app.agents.grounding import build_retrieval_context, is_insufficient_evidence
+from app.agents.grounding import build_retrieval_context_plain as build_retrieval_context, is_insufficient_evidence
 from app.core.config import settings
 from app.llm import LLMError, get_llm_provider
 from app.rag.retriever import Retriever

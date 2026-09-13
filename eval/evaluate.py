@@ -95,7 +95,7 @@ class DeterministicMockProvider(LLMProvider):
             if tool_executor and has_retrieval_tool:
                 tool_executor("retrieve_knowledge", {"query": "brian chesky airbnb growth"})
             return LLMResponse(
-                content="Brian Chesky approached Airbnb's early growth by doing X. [00000000-0000-0000-0000-000000000001]",
+                content="Brian Chesky approached Airbnb's early growth by doing X. [REF-1]",
                 provider="mock",
                 model="mock",
                 tool_calls_made=1
@@ -105,7 +105,7 @@ class DeterministicMockProvider(LLMProvider):
             if tool_executor and has_retrieval_tool:
                 tool_executor("retrieve_knowledge", {"query": "test"})
             return LLMResponse(
-                content="This cites a fake ID. [99999999-9999-9999-9999-999999999999]",
+                content="This cites a fake ID. [REF-999]",
                 provider="mock",
                 model="mock",
                 tool_calls_made=1
@@ -126,7 +126,7 @@ class DeterministicMockProvider(LLMProvider):
 
         # Standard factual
         return LLMResponse(
-            content="Alex Rivera said X about pricing. [00000000-0000-0000-0000-000000000001]",
+            content="Alex Rivera said X about pricing. [REF-1]",
             provider="mock",
             model="mock",
             tool_calls_made=1
@@ -245,12 +245,12 @@ def run_evaluation():
 
                 if qid == "case_a_factual" or qid == "case_b_multiturn":
                     assert data["grounded"] is True, f"Expected grounded=True for {qid}"
-                    assert "00000000-0000-0000-0000-000000000001" in data["content"], f"Expected citation in content for {qid}"
+                    assert "REF-1" in data["content"], f"Expected citation in content for {qid}"
                     results["groundedness"]["grounded"] += 1
 
                 if qid == "case_c_insufficient":
                     assert data["grounded"] is False, "Expected grounded=False for out of corpus"
-                    assert "00000000" not in data["content"], "Should not have citations"
+                    assert "REF-1" not in data["content"], "Should not have citations"
                     results["groundedness"]["insufficient_context"] += 1
 
                 if qid in ["case_j_unsupported", "case_k_invalid_id", "case_l_no_citation"]:
