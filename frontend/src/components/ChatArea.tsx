@@ -10,6 +10,7 @@ interface ChatAreaProps {
   provider: string | null;
   onSendMessage: (content: string) => void;
   onGenerateEssay?: (content: string) => void;
+  onGenerateArtifact?: (content: string, type: 'markdown' | 'html') => void;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
@@ -19,6 +20,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   provider,
   onSendMessage,
   onGenerateEssay,
+  onGenerateArtifact,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +73,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </div>
 
-      <Composer onSend={onSendMessage} onGenerateEssay={onGenerateEssay} disabled={isLoading} />
+      <Composer 
+        onSend={onSendMessage} 
+        onGenerateEssay={onGenerateEssay} 
+        onGenerateArtifact={onGenerateArtifact}
+        disabled={isLoading} 
+      />
     </div>
   );
 };

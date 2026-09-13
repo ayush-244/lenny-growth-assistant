@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, FileText } from 'lucide-react';
+import { Send, FileText, Layout, Code } from 'lucide-react';
 
 interface ComposerProps {
   onSend: (message: string) => void;
   onGenerateEssay?: (message: string) => void;
+  onGenerateArtifact?: (message: string, type: 'markdown' | 'html') => void;
   disabled?: boolean;
 }
 
-export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, disabled }) => {
+export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, onGenerateArtifact, disabled }) => {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -21,6 +22,13 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, dis
   const handleGenerateEssay = () => {
     if (input.trim() && !disabled && onGenerateEssay) {
       onGenerateEssay(input.trim());
+      setInput('');
+    }
+  };
+
+  const handleGenerateArtifact = (type: 'markdown' | 'html') => {
+    if (input.trim() && !disabled && onGenerateArtifact) {
+      onGenerateArtifact(input.trim(), type);
       setInput('');
     }
   };
@@ -65,6 +73,28 @@ export const Composer: React.FC<ComposerProps> = ({ onSend, onGenerateEssay, dis
             >
               <FileText size={20} />
             </button>
+          )}
+          {onGenerateArtifact && (
+            <>
+              <button
+                className="composer-artifact"
+                onClick={() => handleGenerateArtifact('markdown')}
+                disabled={disabled || !input.trim()}
+                aria-label="Create Markdown Artifact"
+                title="Create Markdown Artifact"
+              >
+                <Layout size={20} />
+              </button>
+              <button
+                className="composer-artifact html"
+                onClick={() => handleGenerateArtifact('html')}
+                disabled={disabled || !input.trim()}
+                aria-label="Create HTML Artifact"
+                title="Create HTML Artifact"
+              >
+                <Code size={20} />
+              </button>
+            </>
           )}
           <button
             className="composer-send"

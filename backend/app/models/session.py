@@ -46,3 +46,10 @@ class Session(Base):
         cascade="all, delete-orphan",
         order_by="Message.created_at",
     )
+
+    artifacts: Mapped[list["Artifact"]] = relationship(  # type: ignore[name-defined] # noqa: F821
+        "Artifact",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="Artifact.created_at",
+    )

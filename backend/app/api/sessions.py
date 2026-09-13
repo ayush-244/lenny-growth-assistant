@@ -9,11 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.agents.orchestrator import GroundedConversationalAgent
 from app.db.database import get_db
 from app.llm import LLMError
+from app.schemas.artifact import ArtifactCreate, ArtifactResponse
 from app.schemas.essay import EssayCreate, EssayResponse
 from app.schemas.message import MessageCreate, MessageResponse
 from app.schemas.session import SessionResponse, SessionWithMessagesResponse
 from app.services.session import SessionNotFoundError, SessionService
+from app.services.artifact import ArtifactService
 from app.skills.ship30 import Ship30Skill
+from app.skills.artifact import ArtifactSkill
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -199,3 +202,77 @@ def create_essay(
     )
 
     return response_data
+
+@router.post("/{session_id}/artifacts", response_model=ArtifactResponse)
+def create_artifact(
+    session_id: uuid.UUID,
+    payload: ArtifactCreate,
+    db=Depends(get_db),
+) -> Any:
+    """Generate and persist a new artifact."""
+    service = SessionService(db)
+    
+    try:
+        service.get_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    # Get bounded history
+    full_history = service.get_recent_history(session_id)
+    
+    skill = ArtifactSkill(db)
+    try:
+        result = skill.run(
+            request=payload.request,
+            artifact_type=payload.artifact_type,
+            recent_history=full_history,
+        )
+    except LLMError as exc:
+        logger.error("Artifact LLM error session=%s: %s", session_id, exc)
+        raise HTTPException(status_code=502, detail=str(exc))
+    except Exception as exc:
+        logger.exception("Unexpected error in Artifact skill session=%s", session_id)
+        raise HTTPException(status_code=500, detail="Internal server error")
+        
+    artifact_service = ArtifactService(db)
+    artifact = artifact_service.create_artifact(
+        session_id=session_id,
+        artifact_type=result.artifact_type,
+        content=result.content,
+        request=payload.request,
+        grounded=result.grounded,
+        provider=result.provider,
+        title=payload.request[:197] + "..." if len(payload.request) > 200 else payload.request,
+    )
+    
+    return artifact
+
+
+@router.get("/{session_id}/artifacts", response_model=list[ArtifactResponse])
+def list_artifacts(
+    session_id: uuid.UUID,
+    db=Depends(get_db),
+) -> Any:
+    """List all artifacts for a session."""
+    service = SessionService(db)
+    try:
+        service.get_session(session_id)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    artifact_service = ArtifactService(db)
+    return artifact_service.list_artifacts(session_id)
+
+
+@router.get("/{session_id}/artifacts/{artifact_id}", response_model=ArtifactResponse)
+def get_artifact(
+    session_id: uuid.UUID,
+    artifact_id: uuid.UUID,
+    db=Depends(get_db),
+) -> Any:
+    """Get a specific artifact."""
+    artifact_service = ArtifactService(db)
+    artifact = artifact_service.get_artifact(session_id, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return artifact

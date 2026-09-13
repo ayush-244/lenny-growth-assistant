@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ChatArea } from './components/ChatArea';
-import type { Session, Message, SessionWithMessages } from './types';
+import { ArtifactPanel } from './components/ArtifactPanel';
+import type { Session, Message, SessionWithMessages, Artifact, ArtifactType } from './types';
 import { api } from './api';
 
 export default function App() {
@@ -11,6 +12,11 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Artifact State
+  const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
+  const [isArtifactLoading, setIsArtifactLoading] = useState(false);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
+
   // Track active provider for the UI based on session or latest message
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
 
@@ -33,6 +39,8 @@ export default function App() {
   const loadSession = async (sessionId: string) => {
     setIsLoading(true);
     setError(null);
+    setActiveArtifact(null); // Reset artifact on session change
+    setArtifactError(null);
     try {
       const sessionData: SessionWithMessages = await api.getSession(sessionId);
       setMessages(sessionData.messages || []);
@@ -55,6 +63,8 @@ export default function App() {
   const handleNewSession = async () => {
     setIsLoading(true);
     setError(null);
+    setActiveArtifact(null);
+    setArtifactError(null);
     try {
       const newSession = await api.createSession();
       setMessages([]);
@@ -109,8 +119,6 @@ export default function App() {
         setActiveProvider(responseMsg.provider);
       }
       
-      // If this was the first message, update session list title 
-      // (a real app might update the backend, we just rely on local state or fetch)
       if (messages.length === 0) {
         setSessions(prev => 
           prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
@@ -118,11 +126,11 @@ export default function App() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
-      // We keep the optimistic user message so they can retry or copy it
     } finally {
       setIsLoading(false);
     }
   };
+
   const handleGenerateEssay = async (content: string) => {
     let currentSessionId = activeSessionId;
     if (!currentSessionId) {
@@ -154,7 +162,6 @@ export default function App() {
 
     try {
       const responseMsg = await api.generateEssay(currentSessionId, content);
-      // Ensure type checking accepts this - responseMsg is EssayResponse which extends Message
       setMessages(prev => [...prev, responseMsg as Message]);
       
       if (responseMsg.provider) {
@@ -173,6 +180,56 @@ export default function App() {
     }
   };
 
+  const handleGenerateArtifact = async (content: string, type: ArtifactType) => {
+    let currentSessionId = activeSessionId;
+    if (!currentSessionId) {
+      try {
+        const newSession = await api.createSession();
+        currentSessionId = newSession.id;
+        setActiveSessionId(newSession.id);
+        setActiveProvider(newSession.model_provider);
+        updateSessionsList(newSession);
+        localStorage.setItem('activeSessionId', newSession.id);
+      } catch (err) {
+        setArtifactError('Unable to create a session to generate an artifact.');
+        return;
+      }
+    }
+
+    const tempUserMsg: Message = {
+      id: `temp-${Date.now()}`,
+      session_id: currentSessionId,
+      role: 'user',
+      content: `Create ${type} artifact: ${content}`,
+      grounded: false,
+      created_at: new Date().toISOString(),
+    };
+    
+    setMessages(prev => [...prev, tempUserMsg]);
+    setIsArtifactLoading(true);
+    setArtifactError(null);
+    setActiveArtifact(null);
+
+    try {
+      const artifact = await api.generateArtifact(currentSessionId, content, type);
+      setActiveArtifact(artifact);
+      
+      if (artifact.provider) {
+        setActiveProvider(artifact.provider);
+      }
+      
+      if (messages.length === 0) {
+        setSessions(prev => 
+          prev.map(s => s.id === currentSessionId ? { ...s, metadata_: { title: content.slice(0, 30) + '...' } } : s)
+        );
+      }
+    } catch (err) {
+      setArtifactError(err instanceof Error ? err.message : 'Failed to generate artifact');
+    } finally {
+      setIsArtifactLoading(false);
+    }
+  };
+
   return (
     <div className="app-container">
       <Sidebar
@@ -181,14 +238,29 @@ export default function App() {
         onSelectSession={loadSession}
         onNewSession={handleNewSession}
       />
-      <ChatArea
-        messages={messages}
-        isLoading={isLoading}
-        error={error}
-        provider={activeProvider}
-        onSendMessage={handleSendMessage}
-        onGenerateEssay={handleGenerateEssay}
-      />
+      <div className={`main-content ${activeArtifact || isArtifactLoading || artifactError ? 'with-artifact' : ''}`}>
+        <ChatArea
+          messages={messages}
+          isLoading={isLoading}
+          error={error}
+          provider={activeProvider}
+          onSendMessage={handleSendMessage}
+          onGenerateEssay={handleGenerateEssay}
+          onGenerateArtifact={handleGenerateArtifact}
+        />
+        {(activeArtifact || isArtifactLoading || artifactError) && (
+          <ArtifactPanel
+            artifact={activeArtifact}
+            isLoading={isArtifactLoading}
+            error={artifactError}
+            onClose={() => {
+              setActiveArtifact(null);
+              setIsArtifactLoading(false);
+              setArtifactError(null);
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }

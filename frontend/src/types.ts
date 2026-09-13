@@ -37,3 +37,17 @@ export interface Session {
 export interface SessionWithMessages extends Session {
   messages: Message[];
 }
+
+export type ArtifactType = 'markdown' | 'html';
+
+export interface Artifact {
+  id: string;
+  session_id: string;
+  artifact_type: ArtifactType;
+  content: string;
+  request: string;
+  grounded: boolean;
+  provider?: string | null;
+  title?: string | null;
+  created_at: string;
+}

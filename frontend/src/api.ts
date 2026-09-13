@@ -1,4 +1,4 @@
-import type { Session, SessionWithMessages, Message, EssayResponse } from './types';
+import type { Session, SessionWithMessages, Message, EssayResponse, Artifact } from './types';
 
 // Use standard vite environment variable convention for API URL
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -61,5 +61,19 @@ export const api = {
       body: JSON.stringify({ content }),
     });
     return handleResponse<EssayResponse>(response);
+  },
+
+  async generateArtifact(sessionId: string, request: string, artifactType: string): Promise<Artifact> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ request, artifact_type: artifactType }),
+    });
+    return handleResponse<Artifact>(response);
+  },
+
+  async listArtifacts(sessionId: string): Promise<Artifact[]> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/artifacts`);
+    return handleResponse<Artifact[]>(response);
   },
 };
