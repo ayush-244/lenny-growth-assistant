@@ -51,9 +51,10 @@ curl http://localhost:8000/health/ready
 ```
 
 ### 4. Ingest Sample Transcripts
-Populate the knowledge base with the included JSON transcript fixture:
+Populate the knowledge base with the included JSON transcript fixture. Run this from the repository root (requires local Python environment):
 ```bash
-docker compose exec api python -m scripts.ingest --file ./ingestion/sample_transcripts.json
+$env:POSTGRES_HOST="localhost"
+backend\.venv\Scripts\python ingestion\ingest.py --file ingestion\fixtures\sample_episode.json
 ```
 
 ### 5. Open Application
@@ -71,9 +72,10 @@ cd frontend && npm install && npm run test
 ```
 
 ### 7. Run Deterministic Evaluation
-A deterministic evaluation harness verifies groundedness and system constraints (e.g. Ship30 word count, invalid citation rejection, session isolation).
+A deterministic evaluation harness verifies groundedness and system constraints (e.g. Ship30 word count, invalid citation rejection, session isolation). Run this from the repository root:
 ```bash
-docker compose exec api python ../eval/evaluate.py
+$env:POSTGRES_HOST="localhost"; $env:PYTHONPATH="backend"
+backend\.venv\Scripts\python eval\evaluate.py
 ```
 
 ## What to Try First
