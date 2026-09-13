@@ -371,6 +371,7 @@ class Ship30Skill:
         self,
         topic: str,
         evidence: list[RetrievalResult],
+        provider_name: str | None = None,
     ) -> tuple[str, str]:
         """Generate a Ship30 essay from the given evidence.
 
@@ -387,7 +388,7 @@ class Ship30Skill:
         ------
         LLMError: If the configured provider is unavailable.
         """
-        provider_name = settings.model_provider.lower()
+        provider_name = (provider_name or settings.model_provider).lower()
         provider = get_llm_provider(provider_name)
 
         context = build_retrieval_context(evidence)
@@ -419,6 +420,7 @@ class Ship30Skill:
         self,
         request: str,
         recent_history: list[dict[str, str]] | None = None,
+        provider_name: str | None = None,
     ) -> Ship30Result:
         """Execute the full Ship30 generation pipeline.
 
@@ -432,9 +434,10 @@ class Ship30Skill:
         Ship30Result: The best result after up to MAX_GENERATION_ATTEMPTS attempts.
         """
         t0 = time.perf_counter()
+        provider_name = (provider_name or settings.model_provider).lower()
         session_log: dict[str, Any] = {
             "operation": "ship30_generation",
-            "provider": settings.model_provider,
+            "provider": provider_name,
         }
 
         # --- 1. Resolve topic ---
@@ -466,7 +469,7 @@ class Ship30Skill:
                 essay=insufficient_msg,
                 word_count=self._count_words(insufficient_msg),
                 citations=[],
-                provider=settings.model_provider,
+                provider=provider_name,
                 grounded=False,
                 generation_attempts=0,
                 insufficient_evidence=True,
@@ -482,7 +485,7 @@ class Ship30Skill:
             logger.info("Ship30: generation attempt=%d", attempt)
 
             try:
-                raw_output, provider_name = self.generate_essay(topic, evidence)
+                raw_output, provider_name = self.generate_essay(topic, evidence, provider_name)
             except LLMError as exc:
                 logger.error("Ship30: LLM error on attempt=%d: %s", attempt, exc)
                 raise

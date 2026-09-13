@@ -25,6 +25,9 @@ export default function App() {
   const [artifactsListError, setArtifactsListError] = useState<string | null>(null);
 
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const [activeModel, setActiveModel] = useState<string | null>(null);
+  const [isSwitchingProvider, setIsSwitchingProvider] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<AppView>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +59,7 @@ export default function App() {
       setMessages(sessionData.messages || []);
       setActiveSessionId(sessionId);
       setActiveProvider(sessionData.model_provider || null);
+      setActiveModel(sessionData.model || null);
       updateSessionsList(sessionData);
       localStorage.setItem('activeSessionId', sessionId);
     } catch (err) {
@@ -81,6 +85,7 @@ export default function App() {
       setMessages([]);
       setActiveSessionId(newSession.id);
       setActiveProvider(newSession.model_provider);
+      setActiveModel(newSession.model || null);
       updateSessionsList(newSession);
       localStorage.setItem('activeSessionId', newSession.id);
     } catch (err) {
@@ -96,6 +101,7 @@ export default function App() {
       const newSession = await api.createSession();
       setActiveSessionId(newSession.id);
       setActiveProvider(newSession.model_provider);
+      setActiveModel(newSession.model || null);
       updateSessionsList(newSession);
       localStorage.setItem('activeSessionId', newSession.id);
       return newSession.id;
@@ -252,6 +258,28 @@ export default function App() {
     }
   };
 
+  const handleProviderChange = async (provider: 'ollama' | 'anthropic'): Promise<boolean> => {
+    if (!activeSessionId || provider === activeProvider || isSwitchingProvider) return false;
+    setIsSwitchingProvider(true);
+    setProviderError(null);
+    try {
+      const updated = await api.updateSessionProvider(activeSessionId, provider);
+      setActiveProvider(updated.provider);
+      setActiveModel(updated.model);
+      setSessions((previous) => previous.map((session) => (
+        session.id === activeSessionId
+          ? { ...session, model_provider: updated.provider, model: updated.model }
+          : session
+      )));
+      return true;
+    } catch {
+      setProviderError('Unable to switch model. Please try again.');
+      return false;
+    } finally {
+      setIsSwitchingProvider(false);
+    }
+  };
+
   const latestCitations: Citation[] = [...messages]
     .reverse()
     .find((m) => m.role === 'assistant' && m.citations && m.citations.length > 0)
@@ -314,6 +342,11 @@ export default function App() {
           activeView={activeView}
           onChangeView={handleChangeView}
           provider={activeProvider}
+          model={activeModel}
+          hasSession={Boolean(activeSessionId)}
+          isSwitchingProvider={isSwitchingProvider}
+          providerError={providerError}
+          onChangeProvider={handleProviderChange}
           onToggleSidebar={() => setSidebarOpen((open) => !open)}
         />
       }

@@ -51,6 +51,7 @@ class GroundedConversationalAgent:
         self,
         question: str,
         history: list[dict[str, str]] | None = None,
+        provider_name: str | None = None,
     ) -> dict[str, Any]:
         """Generate a grounded answer for the user's question.
 
@@ -79,7 +80,7 @@ class GroundedConversationalAgent:
             }
         )
 
-        provider_name = settings.model_provider.lower()
+        provider_name = (provider_name or settings.model_provider).lower()
         provider = get_llm_provider(provider_name)
 
         tools: list[dict] = []

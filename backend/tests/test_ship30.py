@@ -613,6 +613,7 @@ def test_essay_endpoint_requires_existing_session(client):
         f"/sessions/{fake_id}/essay",
         json={"content": "Write an essay about retention."},
     )
+
     assert resp.status_code == 404
 
 
@@ -654,6 +655,7 @@ def test_essay_endpoint_returns_essay_response(client, monkeypatch):
     assert data["insufficient_evidence"] is False
     assert data["validation_issues"] == []
     assert "grounded" in data
+    assert mock_skill.run.call_args.kwargs["provider_name"] == "ollama"
 
 
 def test_essay_endpoint_insufficient_evidence(client, monkeypatch):

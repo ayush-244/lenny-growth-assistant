@@ -91,13 +91,11 @@ If you have 5 minutes, try this recommended workflow:
 9. **Insufficient Evidence**: Try an unsupported question like *"What are the specs of the SpaceX Starship?"* and observe the safe fallback response without fabricated citations.
 
 ## Provider Switching
-You can switch providers instantly without changing code by updating your `.env` or setting the environment variable before startup:
-```bash
-MODEL_PROVIDER=anthropic docker compose up -d
-# or
-MODEL_PROVIDER=ollama docker compose up -d
-```
-*(If using Ollama, ensure the model is pulled locally: `ollama run llama3.1:8b`)*
+New conversations use `MODEL_PROVIDER` as their default. The in-app model selector stores a
+provider choice on each conversation, so switching one session does not affect another or require
+a restart. Ollama is the local demo provider. Anthropic is optional and requires
+`ANTHROPIC_API_KEY`; never commit credentials. If using Ollama, ensure its configured model is
+available locally.
 
 ## Repository Structure
 - `backend/`: FastAPI application, Agent orchestration, Skills, RAG logic, and API routes.

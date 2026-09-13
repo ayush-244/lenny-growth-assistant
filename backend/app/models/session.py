@@ -8,6 +8,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+from app.core.config import settings
 
 
 class Session(Base):
@@ -53,3 +54,10 @@ class Session(Base):
         cascade="all, delete-orphan",
         order_by="Artifact.created_at",
     )
+
+    @property
+    def model(self) -> str:
+        """Public model identifier for the provider stored on this session."""
+        if self.model_provider == "anthropic":
+            return settings.anthropic_model
+        return settings.ollama_model

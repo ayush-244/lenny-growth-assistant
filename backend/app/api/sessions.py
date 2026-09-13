@@ -12,7 +12,12 @@ from app.llm import LLMError
 from app.schemas.artifact import ArtifactCreate, ArtifactResponse
 from app.schemas.essay import EssayCreate, EssayResponse
 from app.schemas.message import MessageCreate, MessageResponse
-from app.schemas.session import SessionResponse, SessionWithMessagesResponse
+from app.schemas.session import (
+    ProviderUpdateRequest,
+    ProviderUpdateResponse,
+    SessionResponse,
+    SessionWithMessagesResponse,
+)
 from app.services.session import SessionNotFoundError, SessionService
 from app.services.artifact import ArtifactService
 from app.skills.ship30 import Ship30Skill
@@ -42,6 +47,25 @@ def get_session(session_id: uuid.UUID, db=Depends(get_db)) -> Any:
         raise HTTPException(status_code=404, detail="Session not found")
 
 
+@router.patch("/{session_id}/provider", response_model=ProviderUpdateResponse)
+def update_session_provider(
+    session_id: uuid.UUID,
+    payload: ProviderUpdateRequest,
+    db=Depends(get_db),
+) -> Any:
+    """Change the LLM provider for this session without affecting others."""
+    service = SessionService(db)
+    try:
+        session = service.update_provider(session_id, payload.provider.value)
+    except SessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session.id,
+        "provider": payload.provider,
+        "model": session.model,
+    }
+
+
 @router.post("/{session_id}/messages", response_model=MessageResponse)
 def create_message(
     request: Request,
@@ -61,7 +85,7 @@ def create_message(
 
     # 1. Validate session and save user message
     try:
-        service.get_session(session_id)
+        session = service.get_session(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -83,11 +107,17 @@ def create_message(
         result = agent.answer_question(
             question=payload.content,
             history=history,
+            provider_name=session.model_provider,
         )
         latency = int((time.time() - start) * 1000)
     except LLMError as exc:
         log_event("llm_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
-        raise HTTPException(status_code=502, detail=str(exc))
+        if session.model_provider == "anthropic":
+            raise HTTPException(
+                status_code=502,
+                detail="Anthropic isn't configured or available in this environment. Add an API key to enable it.",
+            )
+        raise HTTPException(status_code=502, detail="The selected model is unavailable. Please try again.")
     except Exception as exc:
         log_event("unexpected_error", request=request, session_id=str(session_id), level=logging.ERROR, error=str(exc))
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -117,7 +147,7 @@ def create_essay(
     service = SessionService(db)
 
     try:
-        service.get_session(session_id)
+        session = service.get_session(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -140,6 +170,7 @@ def create_essay(
         result = skill.run(
             request=payload.content,
             recent_history=bounded_history,
+            provider_name=session.model_provider,
         )
         latency = int((time.time() - start) * 1000)
     except LLMError as exc:
@@ -197,7 +228,7 @@ def create_artifact(
     service = SessionService(db)
     
     try:
-        service.get_session(session_id)
+        session = service.get_session(session_id)
     except SessionNotFoundError:
         raise HTTPException(status_code=404, detail="Session not found")
         
@@ -213,6 +244,7 @@ def create_artifact(
             request=payload.request,
             artifact_type=payload.artifact_type,
             recent_history=full_history,
+            provider_name=session.model_provider,
         )
         latency = int((time.time() - start) * 1000)
     except LLMError as exc:

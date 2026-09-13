@@ -9,8 +9,9 @@ import {
   Menu,
   ChevronDown,
   Bot,
+  Check,
+  LoaderCircle,
 } from 'lucide-react';
-import { formatProviderName } from '../../lib/format';
 
 export type AppView = 'chat' | 'knowledge' | 'artifacts' | 'history';
 
@@ -18,6 +19,11 @@ interface TopNavProps {
   activeView: AppView;
   onChangeView: (view: AppView) => void;
   provider: string | null;
+  model: string | null;
+  hasSession: boolean;
+  isSwitchingProvider: boolean;
+  providerError: string | null;
+  onChangeProvider: (provider: 'ollama' | 'anthropic') => Promise<boolean>;
   onToggleSidebar: () => void;
 }
 
@@ -32,8 +38,23 @@ export const TopNav: React.FC<TopNavProps> = ({
   activeView,
   onChangeView,
   provider,
+  model,
+  hasSession,
+  isSwitchingProvider,
+  providerError,
+  onChangeProvider,
   onToggleSidebar,
 }) => {
+  const [isModelMenuOpen, setIsModelMenuOpen] = React.useState(false);
+  const selectedProvider = provider === 'anthropic' ? 'anthropic' : 'ollama';
+  const displayModel = model || (selectedProvider === 'anthropic' ? 'Claude' : 'Ollama');
+
+  const selectProvider = async (nextProvider: 'ollama' | 'anthropic') => {
+    if (await onChangeProvider(nextProvider)) {
+      setIsModelMenuOpen(false);
+    }
+  };
+
   return (
     <header className="top-nav">
       <div className="top-nav-left">
@@ -61,15 +82,47 @@ export const TopNav: React.FC<TopNavProps> = ({
       </div>
 
       <div className="top-nav-right">
-        {provider && (
-          <div className="provider-badge">
-            <span className="provider-icon" aria-hidden="true">
-              <Bot size={14} />
-            </span>
-            <span>Model: {provider}</span>
-            <span className="status-dot" title={`${formatProviderName(provider)} connected`} />
-          </div>
-        )}
+        <div className="model-selector">
+          <button
+            className="provider-badge model-selector-trigger"
+            type="button"
+            disabled={!hasSession || isSwitchingProvider}
+            onClick={() => setIsModelMenuOpen((open) => !open)}
+            aria-label="Select model"
+            aria-haspopup="menu"
+            aria-expanded={isModelMenuOpen}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setIsModelMenuOpen(false);
+            }}
+          >
+            {isSwitchingProvider ? <LoaderCircle className="model-spinner" size={15} /> : <Bot size={15} />}
+            <span>{isSwitchingProvider ? 'Switching…' : `Model: ${selectedProvider} · ${displayModel}`}</span>
+            <ChevronDown size={15} />
+          </button>
+          {isModelMenuOpen && (
+            <div className="model-menu" role="menu" aria-label="Select model">
+              <p>Select model</p>
+              {(['ollama', 'anthropic'] as const).map((option) => (
+                <button
+                  key={option}
+                  role="menuitemradio"
+                  aria-checked={selectedProvider === option}
+                  type="button"
+                  onClick={() => selectProvider(option)}
+                >
+                  <span className={`model-radio ${selectedProvider === option ? 'selected' : ''}`}>
+                    {selectedProvider === option && <Check size={12} />}
+                  </span>
+                  <span className="model-menu-copy">
+                    <strong>{option === 'ollama' ? 'Ollama' : 'Anthropic'}</strong>
+                    <small>{option === 'ollama' ? (selectedProvider === option ? displayModel : 'Local model') : (selectedProvider === option ? displayModel : 'Claude')}</small>
+                  </span>
+                </button>
+              ))}
+              {providerError && <span className="model-menu-error" role="alert">{providerError}</span>}
+            </div>
+          )}
+        </div>
         <button className="icon-btn" type="button" aria-label="Settings" title="Settings">
           <Settings size={18} />
         </button>

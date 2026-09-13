@@ -1,4 +1,4 @@
-import type { Session, SessionWithMessages, Message, EssayResponse, Artifact } from './types';
+import type { Session, SessionWithMessages, Message, EssayResponse, Artifact, ProviderUpdate } from './types';
 
 // Use standard vite environment variable convention for API URL
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -43,6 +43,15 @@ export const api = {
   async getSession(sessionId: string): Promise<SessionWithMessages> {
     const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
     return handleResponse<SessionWithMessages>(response);
+  },
+
+  async updateSessionProvider(sessionId: string, provider: 'ollama' | 'anthropic'): Promise<ProviderUpdate> {
+    const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/provider`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider }),
+    });
+    return handleResponse<ProviderUpdate>(response);
   },
 
   async sendMessage(sessionId: string, content: string): Promise<Message> {

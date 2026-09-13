@@ -31,9 +31,16 @@ export interface EssayResponse extends Message {
 export interface Session {
   id: string;
   model_provider: string;
+  model?: string;
   metadata_?: Record<string, any> | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProviderUpdate {
+  session_id: string;
+  provider: 'ollama' | 'anthropic';
+  model: string;
 }
 
 export interface SessionWithMessages extends Session {

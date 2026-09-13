@@ -117,6 +117,7 @@ def test_api_create_artifact(client, monkeypatch):
     assert data["content"] == "# Markdown"
     assert data["artifact_type"] == "markdown"
     assert data["grounded"] is True
+    assert mock_skill.run.call_args.kwargs["provider_name"] == "ollama"
 
 
 def test_api_create_artifact_llm_error(client, monkeypatch):

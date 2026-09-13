@@ -38,6 +38,14 @@ class SessionService:
             raise SessionNotFoundError(f"Session {session_id} not found")
         return session
 
+    def update_provider(self, session_id: uuid.UUID, provider: str) -> Session:
+        """Persist a provider choice for one conversation only."""
+        session = self.get_session(session_id)
+        session.model_provider = provider
+        self.db.commit()
+        self.db.refresh(session)
+        return session
+
     def get_recent_history(self, session_id: uuid.UUID) -> list[dict[str, str]]:
         """Retrieve recent conversation history formatted for the LLM.
 

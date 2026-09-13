@@ -104,3 +104,21 @@ def test_agent_insufficient_evidence(db_session, monkeypatch):
     
     assert result["grounded"] is False
     assert len(result["citations"]) == 0
+
+
+def test_agent_uses_explicit_session_provider(db_session, monkeypatch):
+    """An existing conversation's provider must override MODEL_PROVIDER."""
+    captured_provider: list[str] = []
+    mock_provider = MagicMock()
+    mock_provider.chat.return_value = LLMResponse(
+        content="No citation", provider="anthropic", model="test-model"
+    )
+
+    def get_provider(name: str):
+        captured_provider.append(name)
+        return mock_provider
+
+    monkeypatch.setattr("app.agents.orchestrator.get_llm_provider", get_provider)
+    agent = GroundedConversationalAgent(db_session)
+    agent.answer_question("Question", provider_name="anthropic")
+    assert captured_provider == ["anthropic"]

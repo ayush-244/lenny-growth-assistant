@@ -3,9 +3,26 @@
 import uuid
 from datetime import datetime
 
+from enum import Enum
+
 from pydantic import BaseModel
 
 from app.schemas.message import MessageResponse
+
+
+class ProviderName(str, Enum):
+    OLLAMA = "ollama"
+    ANTHROPIC = "anthropic"
+
+
+class ProviderUpdateRequest(BaseModel):
+    provider: ProviderName
+
+
+class ProviderUpdateResponse(BaseModel):
+    session_id: uuid.UUID
+    provider: ProviderName
+    model: str
 
 
 class SessionResponse(BaseModel):
@@ -13,6 +30,7 @@ class SessionResponse(BaseModel):
 
     id: uuid.UUID
     model_provider: str
+    model: str
     metadata_: dict | None = None
     created_at: datetime
     updated_at: datetime

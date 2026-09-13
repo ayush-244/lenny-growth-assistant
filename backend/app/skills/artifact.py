@@ -88,6 +88,7 @@ class ArtifactSkill:
         request: str,
         artifact_type: str,
         recent_history: list[dict[str, str]] | None = None,
+        provider_name: str | None = None,
     ) -> ArtifactSkillResult:
         """Run the artifact generation pipeline.
 
@@ -105,7 +106,7 @@ class ArtifactSkill:
         ArtifactSkillResult
         """
         t0 = time.perf_counter()
-        provider_name = settings.model_provider
+        provider_name = provider_name or settings.model_provider
 
         # 1. Validate artifact type
         valid_types = {"markdown", "html"}
