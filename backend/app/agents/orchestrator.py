@@ -13,6 +13,7 @@ Both paths use the same strict REF-N citation validation.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -31,6 +32,13 @@ from app.schemas.retrieval import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_REF_BLOCK_PATTERN = re.compile(
+    r"\[REF-\d+\]\s*"
+    r"Source:\s*.*?"
+    r"Chunk ID:\s*[0-9a-fA-F-]+\s*"
+    r"Evidence:\s*.*?(?=\n\s*\n|\Z)",
+    re.DOTALL,
+)
 
 INSUFFICIENT_EVIDENCE_RESPONSE = (
     "I don't have enough evidence in the Lenny knowledge base "
@@ -45,13 +53,9 @@ class GroundedConversationalAgent:
 
     def __init__(self, db_session: Session) -> None:
         self.db = db_session
-
         self._retriever: Retriever | None = None
-
         self._current_turn_citations: list[RetrievalResult] = []
-
         self._ref_mapping: dict[str, RetrievalResult] = {}
-
         self._next_ref_index: int = 1
 
     def answer_question(
@@ -133,6 +137,14 @@ class GroundedConversationalAgent:
 
         is_grounded = bool(valid_citations)
 
+        # Only sanitize after citation validation succeeds.
+        # This keeps the internal REF-N markers available for validation
+        # while preventing them from leaking into the user-facing answer.
+        if is_grounded:
+            response.content = self._sanitize_user_answer(
+                response.content
+            )
+
         # Never trust the model merely because retrieval returned results.
         # The model must explicitly cite a valid retrieved reference.
         if not is_grounded:
@@ -147,6 +159,37 @@ class GroundedConversationalAgent:
             "grounded": is_grounded,
             "provider": response.provider,
         }
+
+    def _sanitize_user_answer(self, content: str) -> str:
+        """Remove internal retrieval context accidentally echoed by the model."""
+
+        cleaned = INTERNAL_REF_BLOCK_PATTERN.sub(
+            "",
+            content,
+        )
+
+        # Remove standalone internal citation tokens if the model leaves them.
+        cleaned = re.sub(
+            r"\[REF-\d+\]",
+            "",
+            cleaned,
+        )
+
+        # Remove leftover internal metadata lines.
+        cleaned = re.sub(
+            r"(?im)^\s*(Source|Chunk ID|Evidence):.*$\n?",
+            "",
+            cleaned,
+        )
+
+        # Collapse excessive blank lines introduced by cleanup.
+        cleaned = re.sub(
+            r"\n{3,}",
+            "\n\n",
+            cleaned,
+        )
+
+        return cleaned.strip()
 
     def _answer_with_ollama(
         self,
@@ -272,7 +315,6 @@ class GroundedConversationalAgent:
         )
 
         self._ref_mapping.update(new_mapping)
-
         self._next_ref_index += len(results.results)
 
         return context

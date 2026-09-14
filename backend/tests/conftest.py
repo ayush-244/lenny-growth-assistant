@@ -1,20 +1,13 @@
-"""Shared pytest fixtures for Phase 2 integration tests.
+"""Shared pytest fixtures for integration tests.
 
 Database fixtures
 -----------------
 The ``db_session`` fixture provides a real SQLAlchemy session against the
-Docker PostgreSQL instance. It wraps each test in a transaction that is
-rolled back after the test, leaving the database clean for the next test.
+Docker PostgreSQL instance. Each test runs inside a transaction that is
+rolled back after the test.
 
-Prerequisites
--------------
-- docker compose up (PostgreSQL must be running with migrations applied)
-- POSTGRES_HOST=localhost in the environment (or .env)
-
-Embedding fixtures
-------------------
-``deterministic_provider`` returns a DeterministicTestEmbeddingProvider.
-Tests must never depend on Ollama availability.
+The transcript and chunk tables are cleared inside that transaction before
+each test so tests remain isolated from manually ingested demo data.
 """
 
 from __future__ import annotations
@@ -23,11 +16,16 @@ import json
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, text
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, delete
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+from app.db.database import get_db
+from app.models.chunk import Chunk
+from app.models.transcript import Transcript
 from app.rag.embeddings import DeterministicTestEmbeddingProvider
+from app.main import app
 
 
 # ---------------------------------------------------------------------------
@@ -36,27 +34,35 @@ from app.rag.embeddings import DeterministicTestEmbeddingProvider
 
 @pytest.fixture(scope="session")
 def db_engine():
-    """Create a SQLAlchemy engine connecting to the test database.
+    """Create a SQLAlchemy engine connecting to PostgreSQL."""
 
-    Uses settings.database_url (POSTGRES_HOST from environment).
-    Requires Docker PostgreSQL to be running with migrations applied.
-    """
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+    engine = create_engine(
+        settings.database_url,
+        pool_pre_ping=True,
+    )
+
     yield engine
+
     engine.dispose()
 
 
 @pytest.fixture()
 def db_session(db_engine):
-    """Provide a database session wrapped in a rolled-back transaction.
+    """Provide an isolated database session for each test."""
 
-    Each test gets a fresh, isolated session. Changes are never committed
-    to the database — the transaction is rolled back after the test.
-    """
     connection = db_engine.connect()
     transaction = connection.begin()
+
     Session = sessionmaker(bind=connection)
     session = Session()
+
+    # Remove manually ingested demo data inside the test transaction.
+    # The transaction is rolled back after the test, so the real database
+    # contents are preserved.
+    session.execute(delete(Chunk))
+    session.execute(delete(Transcript))
+
+    session.flush()
 
     yield session
 
@@ -71,7 +77,8 @@ def db_session(db_engine):
 
 @pytest.fixture()
 def deterministic_provider():
-    """Return a DeterministicTestEmbeddingProvider (768-dim, test-only)."""
+    """Return a deterministic 768-dimensional test embedding provider."""
+
     return DeterministicTestEmbeddingProvider()
 
 
@@ -81,18 +88,18 @@ def deterministic_provider():
 
 @pytest.fixture()
 def sample_fixture():
-    """Load the sample episode fixture.
+    """Load the sample episode fixture."""
 
-    The fixture is kept at ``backend/tests/fixtures/sample_episode.json`` so
-    it is available both locally and inside the Docker container (which only
-    copies the ``backend/`` directory).
-    """
     fixture_path = (
         Path(__file__).resolve().parent
         / "fixtures"
         / "sample_episode.json"
     )
-    with fixture_path.open("r", encoding="utf-8") as f:
+
+    with fixture_path.open(
+        "r",
+        encoding="utf-8",
+    ) as f:
         return json.load(f)
 
 
@@ -100,17 +107,16 @@ def sample_fixture():
 # API Client fixture
 # ---------------------------------------------------------------------------
 
-from fastapi.testclient import TestClient
-from app.main import app
-from app.db.database import get_db
-
 @pytest.fixture()
 def client(db_session):
-    """Return a FastAPI TestClient with the DB session overridden."""
+    """Return a FastAPI TestClient using the isolated DB session."""
+
     def override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
-        yield c
+
+    with TestClient(app) as test_client:
+        yield test_client
+
     app.dependency_overrides.clear()

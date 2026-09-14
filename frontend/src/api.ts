@@ -1,4 +1,5 @@
-import type { Session, SessionWithMessages, Message, EssayResponse, Artifact, ProviderUpdate } from './types';
+import type { Session, SessionWithMessages, Message, EssayResponse, Artifact, ProviderUpdate, KnowledgeEpisode, } from './types';
+
 
 // Use standard vite environment variable convention for API URL
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -18,8 +19,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
     try {
       const errorData = await response.json();
       if (errorData.detail) {
-        errorMessage = typeof errorData.detail === 'string' 
-          ? errorData.detail 
+        errorMessage = typeof errorData.detail === 'string'
+          ? errorData.detail
           : JSON.stringify(errorData.detail);
       }
     } catch {
@@ -39,6 +40,13 @@ export const api = {
     });
     return handleResponse<Session>(response);
   },
+
+  async listKnowledgeBase(): Promise<KnowledgeEpisode[]> {
+    const response = await fetch(`${API_BASE_URL}/knowledge-base`);
+    return handleResponse<KnowledgeEpisode[]>(response);
+  },
+
+
 
   async getSession(sessionId: string): Promise<SessionWithMessages> {
     const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);

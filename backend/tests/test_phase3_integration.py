@@ -114,7 +114,7 @@ def test_end_to_end_conversational_flow(
 
     assert (
         data["content"]
-        == "Based on the episode, retention is key. [REF-1]"
+        == "Based on the episode, retention is key."
     )
 
     assert data["grounded"] is True

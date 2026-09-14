@@ -59,7 +59,7 @@ def test_agent_successful_turn(db_session, monkeypatch):
 
     result = agent.answer_question("What is the key to growth?")
 
-    assert result["answer"] == "Lenny says retention is key. [REF-1]"
+    assert result["answer"] == "Lenny says retention is key."
     assert result["grounded"] is True
     assert len(result["citations"]) == 1
     assert result["citations"][0]["episode_id"] == "ep-123"
@@ -158,7 +158,8 @@ def test_context_formatting_and_edge_cases(db_session, monkeypatch):
 
     assert "[REF-1]" in context
     assert "[REF-1 |" not in context
-    assert "Source: Growth — feat. Guest Name" in context
+    assert "Source: Growth" in context
+    assert "Guest Name" in context
     assert f"Chunk ID: {test_chunk_id}" in context
     assert mapping["REF-1"] == mock_results[0]
 
@@ -198,19 +199,19 @@ def test_context_formatting_and_edge_cases(db_session, monkeypatch):
 
         assert result["grounded"] == expected_grounded
 
-    # G. No citation
+    # No citation
     _test_with_response(
         "Retention supports sustainable growth.",
         False,
     )
 
-    # H. Invalid citation
+    # Invalid citation
     _test_with_response(
         "Retention supports sustainable growth. [REF-999]",
         False,
     )
 
-    # I. Fake metadata inside citation brackets
+    # Fake metadata inside citation brackets
     _test_with_response(
         "Retention supports sustainable growth. [REF-1 | fake metadata]",
         False,

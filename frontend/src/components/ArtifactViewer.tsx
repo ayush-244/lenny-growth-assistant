@@ -21,7 +21,6 @@ export const ArtifactViewer: React.FC<ArtifactViewerProps> = ({ artifact }) => {
     );
   }
 
-  // Fallback to Markdown
   return (
     <div className="artifact-viewer markdown-viewer">
       <div className="markdown-content">

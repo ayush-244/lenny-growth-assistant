@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -52,11 +53,15 @@ IMPORTANT:
 - You must finish the complete essay.
 
 LENGTH:
-- Minimum: {WORD_COUNT_MIN} words
-- Target: {WORD_COUNT_TARGET} words
-- Maximum: {WORD_COUNT_MAX} words
-- Do not stop early.
-- Continue writing until the essay is at least {WORD_COUNT_MIN} words.
+- Minimum: {WORD_COUNT_MIN} words.
+- Target: {WORD_COUNT_TARGET} words.
+- Maximum: {WORD_COUNT_MAX} words.
+- Plan the essay before writing.
+- Use 6–8 substantial sections.
+- Each section should develop the central argument with evidence.
+- Do not stop after a short introduction and a few examples.
+- The final essay must be at least {WORD_COUNT_MIN} words.
+- If the draft is below {WORD_COUNT_MIN} words, continue expanding it before stopping.
 
 GROUNDING:
 - Use ONLY the retrieved evidence.
@@ -72,6 +77,10 @@ CITATIONS:
 - Do not write chunk UUIDs.
 - Put citations directly after factual claims or paragraphs they support.
 - Every section containing information from the evidence must contain a valid [REF-N].
+- At the end of the essay, output exactly one line:
+  SOURCE_REFS: [REF-1], [REF-2]
+- SOURCE_REFS must contain only valid REF-N labels from the retrieved evidence.
+- Do not omit SOURCE_REFS.
 
 ESSAY STRUCTURE:
 1. Strong specific hook.
@@ -98,6 +107,10 @@ Do not include:
 - metadata
 - JSON
 - code fences
+- any metadata other than SOURCE_REFS
+
+The final line MUST be:
+SOURCE_REFS: [REF-1], [REF-2]
 
 Before stopping, make sure:
 - The essay is at least {WORD_COUNT_MIN} words.
@@ -298,12 +311,23 @@ class Ship30Skill:
             if stripped.startswith("CITATIONS:"):
                 continue
 
+            if stripped.startswith("SOURCE_REFS:"):
+                continue
+
             if stripped.startswith("WORD_COUNT:"):
                 continue
 
             cleaned.append(line)
 
         return "\n".join(cleaned).strip()
+
+    @staticmethod
+    def _remove_internal_refs(text: str) -> str:
+        """Remove internal retrieval reference labels from user-facing output."""
+
+        cleaned = re.sub(r"\[REF-\d+\]", "", text)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
 
     def _parse_llm_output(
         self,
@@ -331,11 +355,40 @@ class Ship30Skill:
                 raw_ids = stripped[len("CITATIONS:"):].strip()
 
                 if raw_ids:
-                    for part in raw_ids.split(","):
-                        citation_id = part.strip()
+                    ref_ids = re.findall(
+                        r"\[REF-\d+\]",
+                        raw_ids,
+                        flags=re.IGNORECASE,
+                    )
 
-                        if citation_id:
-                            cited_ids.add(citation_id)
+                    if ref_ids:
+                        cited_ids.update(
+                            ref_id.strip("[]").upper()
+                            for ref_id in ref_ids
+                        )
+                    else:
+                        for part in raw_ids.split(","):
+                            citation_id = part.strip()
+
+                            if citation_id:
+                                cited_ids.add(citation_id)
+
+                continue
+
+            if stripped.startswith("SOURCE_REFS:"):
+                metadata_started = True
+
+                raw_refs = stripped[len("SOURCE_REFS:"):].strip()
+
+                if raw_refs:
+                    cited_ids.update(
+                        ref_id.strip("[]").upper()
+                        for ref_id in re.findall(
+                            r"\[REF-\d+\]",
+                            raw_refs,
+                            flags=re.IGNORECASE,
+                        )
+                    )
 
                 continue
 
@@ -361,6 +414,7 @@ class Ship30Skill:
         evidence: list[RetrievalResult],
         provider_name: str | None = None,
         retry_feedback: str | None = None,
+        previous_essay: str | None = None,
     ) -> tuple[str, str]:
         """Generate an essay using retrieved evidence."""
 
@@ -383,13 +437,28 @@ class Ship30Skill:
             retry_instruction = (
                 "\n\nCORRECTION REQUIRED:\n"
                 f"{retry_feedback}\n"
+                "\nThe previous draft is included below. "
+                "Do NOT start over from scratch. "
+                "Keep its useful structure and evidence-backed ideas, "
+                "then expand it until it reaches the required length.\n"
+                "\nPREVIOUS DRAFT:\n"
+                f"{previous_essay or ''}\n"
+                "\nEXPANSION REQUIREMENTS:\n"
+                f"- Previous draft length: {len((previous_essay or '').split())} words.\n"
+                f"- Expand the draft to approximately {WORD_COUNT_TARGET} words.\n"
+                f"- Final length must be between {WORD_COUNT_MIN} and {WORD_COUNT_MAX} words.\n"
+                "- Add useful explanation, narrative, examples, and practical implications "
+                "ONLY when supported by the retrieved evidence.\n"
+                "- Preserve valid [REF-N] citations.\n"
+                "- Do not shorten the previous draft.\n"
+                "- Do not introduce outside knowledge.\n"
             )
 
         user_message = (
             "Write a complete Ship 30 for 30 essay about:\n\n"
             f"{topic}\n\n"
             "Use ONLY the retrieved evidence below.\n"
-            f"The essay must contain {WORD_COUNT_MIN}–"
+            f"The essay must contain {WORD_COUNT_MIN}â€“"
             f"{WORD_COUNT_MAX} words.\n"
             "Target approximately "
             f"{WORD_COUNT_TARGET} words.\n"
@@ -495,6 +564,7 @@ class Ship30Skill:
         }
 
         best_result: Ship30Result | None = None
+        previous_generated_essay: str | None = None
         all_issues: list[str] = []
 
         for attempt in range(
@@ -509,15 +579,33 @@ class Ship30Skill:
             retry_feedback = None
 
             if attempt > 1:
+                previous_word_count = (
+                    len(best_result.essay.split())
+                    if best_result is not None
+                    else 0
+                )
+                minimum_words_to_add = max(
+                    150,
+                    WORD_COUNT_MIN - previous_word_count + 100,
+                )
+
                 retry_feedback = (
                     "The previous attempt failed validation. "
-                    "Write the complete essay again. "
-                    f"Make it {WORD_COUNT_TARGET} words, "
-                    "with an allowed range of "
-                    f"{WORD_COUNT_MIN}–{WORD_COUNT_MAX} words. "
-                    "Include valid [REF-N] citations from the "
+                    "Treat the previous draft below as the base draft and "
+                    "EXPAND it rather than starting over. "
+                    f"The previous draft contains {previous_word_count} words. "
+                    f"The final essay MUST contain at least {WORD_COUNT_MIN} words "
+                    f"and should target {WORD_COUNT_TARGET} words. "
+                    f"Add at least {minimum_words_to_add} new words. "
+                    "Do not shorten, summarize, or replace the previous draft. "
+                    "Keep its useful evidence-backed ideas and structure. "
+                    "Add substantive explanation, narrative development, "
+                    "practical application, and transitions using ONLY the "
                     "retrieved evidence. "
-                    "Do not stop before completing the essay."
+                    "Preserve valid [REF-N] citations and add citations where "
+                    "new factual claims require them. "
+                    "Finish with a SOURCE_REFS line containing the valid REF-N labels used. "
+                    "Do not stop until the minimum word count is reached."
                 )
 
             try:
@@ -527,6 +615,7 @@ class Ship30Skill:
                         evidence=evidence,
                         provider_name=provider_name,
                         retry_feedback=retry_feedback,
+                        previous_essay=previous_generated_essay,
                     )
                 )
 
@@ -544,18 +633,30 @@ class Ship30Skill:
                 parsed_essay
             )
 
-            word_count = self._count_words(
+            cited_refs = extract_ref_citations(
                 essay
+            )
+
+            metadata_ref_citations = {
+                citation_id
+                for citation_id in legacy_cited_ids
+                if citation_id.startswith("REF-")
+            }
+
+            cited_refs = cited_refs | metadata_ref_citations
+
+            visible_essay = self._remove_internal_refs(
+                essay
+            )
+
+            word_count = self._count_words(
+                visible_essay
             )
 
             word_count_valid = (
                 WORD_COUNT_MIN
                 <= word_count
                 <= WORD_COUNT_MAX
-            )
-
-            cited_refs = extract_ref_citations(
-                essay
             )
 
             invalid_refs = {
@@ -569,15 +670,21 @@ class Ship30Skill:
                 and not invalid_refs
             )
 
+            legacy_uuid_ids = {
+                citation_id
+                for citation_id in legacy_cited_ids
+                if not citation_id.startswith("REF-")
+            }
+
             legacy_citations_valid, invalid_legacy_ids = (
                 self.validate_citations(
-                    legacy_cited_ids,
+                    legacy_uuid_ids,
                     retrieved_ids,
                 )
             )
 
             has_legacy_citations = bool(
-                legacy_cited_ids
+                legacy_uuid_ids
             )
 
             citation_valid = (
@@ -597,7 +704,7 @@ class Ship30Skill:
                     cited_chunks.append(result)
 
             for result in evidence:
-                if str(result.chunk_id) in legacy_cited_ids:
+                if str(result.chunk_id) in legacy_uuid_ids:
                     if result not in cited_chunks:
                         cited_chunks.append(result)
 
@@ -610,7 +717,7 @@ class Ship30Skill:
                 )
 
             if not citation_valid:
-                if not cited_refs and not legacy_cited_ids:
+                if not cited_refs and not legacy_uuid_ids:
                     issues.append(
                         "missing_citations"
                     )
@@ -630,7 +737,7 @@ class Ship30Skill:
             )
 
             current = Ship30Result(
-                essay=essay,
+                essay=visible_essay,
                 word_count=word_count,
                 citations=cited_chunks,
                 provider=actual_provider,
@@ -641,6 +748,7 @@ class Ship30Skill:
             )
 
             best_result = current
+            previous_generated_essay = essay
 
             if not issues:
                 elapsed_ms = (

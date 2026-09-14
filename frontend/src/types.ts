@@ -60,3 +60,22 @@ export interface Artifact {
   title?: string | null;
   created_at: string;
 }
+
+export interface KnowledgeChunk {
+  id: string;
+  chunk_index: number;
+  content: string;
+  timestamp_start: number | null;
+  timestamp_end: number | null;
+}
+
+export interface KnowledgeEpisode {
+  id: string;
+  episode_id: string;
+  title: string;
+  guest_name: string | null;
+  source_url: string | null;
+  ingested_at: string;
+  chunk_count: number;
+  chunks: KnowledgeChunk[];
+}

@@ -6,8 +6,9 @@ import { AppShell } from './components/layout/AppShell';
 import { TopNav, type AppView } from './components/layout/TopNav';
 import { SourcesPanel } from './components/sources/SourcesPanel';
 import { KnowledgeView, HistoryView, ArtifactsView } from './components/layout/SecondaryViews';
-import type { Session, Message, SessionWithMessages, Artifact, ArtifactType, Citation } from './types';
+import type { Session, Message, SessionWithMessages, Artifact, ArtifactType, Citation, KnowledgeEpisode } from './types';
 import { api } from './api';
+
 
 export default function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -23,6 +24,9 @@ export default function App() {
   const [sessionArtifacts, setSessionArtifacts] = useState<Artifact[]>([]);
   const [artifactsLoading, setArtifactsLoading] = useState(false);
   const [artifactsListError, setArtifactsListError] = useState<string | null>(null);
+  const [knowledgeEpisodes, setKnowledgeEpisodes] = useState<KnowledgeEpisode[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string | null>(null);
@@ -46,6 +50,8 @@ export default function App() {
       return [session, ...prev];
     });
   };
+
+
 
   const loadSession = async (sessionId: string) => {
     setIsLoading(true);
@@ -153,6 +159,24 @@ export default function App() {
     }
   };
 
+  const loadKnowledgeBase = async () => {
+    setKnowledgeLoading(true);
+    setKnowledgeError(null);
+
+    try {
+      const items = await api.listKnowledgeBase();
+      setKnowledgeEpisodes(items);
+    } catch (err) {
+      setKnowledgeError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load the knowledge base',
+      );
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  };
+
   const handleGenerateEssay = async (content: string) => {
     const currentSessionId = await ensureSession();
     if (!currentSessionId) {
@@ -253,6 +277,11 @@ export default function App() {
 
   const handleChangeView = (view: AppView) => {
     setActiveView(view);
+
+    if (view === 'knowledge') {
+      loadKnowledgeBase();
+    }
+
     if (view === 'artifacts' && activeSessionId) {
       loadArtifacts(activeSessionId);
     }
@@ -307,7 +336,13 @@ export default function App() {
   );
 
   if (activeView === 'knowledge') {
-    mainContent = <KnowledgeView />;
+    mainContent = (
+      <KnowledgeView
+        episodes={knowledgeEpisodes}
+        isLoading={knowledgeLoading}
+        error={knowledgeError}
+      />
+    );
   } else if (activeView === 'history') {
     mainContent = <HistoryView sessions={sessions} onSelectSession={loadSession} />;
   } else if (activeView === 'artifacts') {
