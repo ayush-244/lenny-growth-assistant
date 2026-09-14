@@ -2,7 +2,7 @@ import React from 'react';
 import { Plus, MessageSquare, ChevronDown } from 'lucide-react';
 import type { Session } from '../types';
 import { LennyLogo } from './branding/LennyLogo';
-import { QuoteCard } from './branding/QuoteCard';
+
 import { formatRelativeTime } from '../lib/format';
 
 interface SidebarProps {
@@ -54,7 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </ul>
 
-      <QuoteCard />
+
 
       <div className="sidebar-user">
         <span className="avatar">A</span>

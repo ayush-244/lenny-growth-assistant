@@ -39,14 +39,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <div className="chat-container">
       <div className="messages-area">
-        <p className="decorative-tagline" aria-hidden="true">
-          Small
-          <br />
-          Steps
-          <br />
-          Big Growth
-          <span className="tagline-heart">♡</span>
-        </p>
+
         <div className="messages-content">
           {showHero && <EmptyState />}
           {compactHero && !showHero && <EmptyState compact />}
