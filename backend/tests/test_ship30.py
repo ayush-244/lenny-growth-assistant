@@ -331,10 +331,13 @@ def test_run_successful_generation(db_session, monkeypatch):
     mock_provider = MagicMock()
     essay_prose = make_essay_prose(WORD_COUNT_TARGET)
     mock_provider.chat.return_value = LLMResponse(
-        content=f"{essay_prose}\n---\nCITATIONS: {cid}\nWORD_COUNT: {WORD_COUNT_TARGET}",
-        provider="test_provider",
-        model="test_model",
-    )
+    content=(
+        make_essay_prose(WORD_COUNT_TARGET)
+        + "\n\n[REF-1]"
+    ),
+    provider="ollama",
+    model="llama3.1",
+)
     monkeypatch.setattr("app.skills.ship30.get_llm_provider", lambda name: mock_provider)
 
     result = skill.run("Write a Ship 30 essay about retention")
@@ -357,10 +360,13 @@ def test_run_uses_provider_abstraction(db_session, monkeypatch):
 
     mock_provider = MagicMock()
     mock_provider.chat.return_value = LLMResponse(
-        content=make_essay_prose(WORD_COUNT_TARGET),
-        provider="ollama",
-        model="llama3.1",
-    )
+    content=(
+        make_essay_prose(WORD_COUNT_TARGET)
+        + "\n\n[REF-1]"
+    ),
+    provider="ollama",
+    model="llama3.1",
+)
 
     captured_provider_name = []
 

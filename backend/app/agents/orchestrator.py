@@ -1,12 +1,13 @@
 """Grounded conversational agent orchestrator.
 
-The Orchestrator is the single main agent in the architecture.
-It manages the conversational flow for a single turn:
-1. Receives the user question and recent conversation history.
-2. Selects the LLM provider via the router.
-3. Prepares tools and system prompt.
-4. Executes the agentic tool-use loop (handled internally by the provider).
-5. Returns a grounded answer and citation metadata.
+The orchestrator is the single main agent in the architecture.
+
+Provider behavior:
+- Anthropic uses the retrieval tool through the agentic tool-use loop.
+- Ollama retrieves evidence before generation and injects the evidence
+  directly into the model prompt for reliable local execution.
+
+Both paths use the same strict REF-N citation validation.
 """
 
 from __future__ import annotations
@@ -31,30 +32,26 @@ from app.schemas.retrieval import RetrievalResult
 logger = logging.getLogger(__name__)
 
 
-class GroundedConversationalAgent:
-    """The main agent/orchestrator.
+INSUFFICIENT_EVIDENCE_RESPONSE = (
+    "I don't have enough evidence in the Lenny knowledge base "
+    "to answer that confidently. "
+    "The knowledge base doesn't contain relevant information "
+    "about this topic."
+)
 
-    It connects a configured LLMProvider with the RAG Retriever tool,
-    enforcing the grounding policy and collecting citations.
-    """
+
+class GroundedConversationalAgent:
+    """Main grounded conversational agent."""
 
     def __init__(self, db_session: Session) -> None:
         self.db = db_session
 
-        # Retriever is created lazily so test monkeypatches applied to
-        # the embedding provider take effect before provider resolution.
         self._retriever: Retriever | None = None
 
-        # Store citations collected during the current agent turn.
         self._current_turn_citations: list[RetrievalResult] = []
 
-        # REF-N → RetrievalResult mapping for the current turn.
-        # Built incrementally as the retrieval tool is called (possibly
-        # multiple times).
         self._ref_mapping: dict[str, RetrievalResult] = {}
 
-        # Next REF number to assign (increases across multiple tool calls
-        # within the same turn so labels remain unique).
         self._next_ref_index: int = 1
 
     def answer_question(
@@ -63,24 +60,7 @@ class GroundedConversationalAgent:
         history: list[dict[str, str]] | None = None,
         provider_name: str | None = None,
     ) -> dict[str, Any]:
-        """Generate a grounded answer for the user's question.
-
-        Parameters
-        ----------
-        question:
-            The latest user question.
-        history:
-            Recent conversation history (roles: user, assistant).
-
-        Returns
-        -------
-        dict
-            Contains:
-            - answer: generated answer
-            - citations: verified retrieved citations
-            - grounded: whether the answer contains a verified citation
-            - provider: LLM provider used
-        """
+        """Generate a grounded answer for one user question."""
 
         messages = list(history) if history else []
         messages.append(
@@ -90,17 +70,12 @@ class GroundedConversationalAgent:
             }
         )
 
-        provider_name = (provider_name or settings.model_provider).lower()
+        provider_name = (
+            provider_name or settings.model_provider
+        ).lower()
+
         provider = get_llm_provider(provider_name)
 
-        tools: list[dict] = []
-
-        if provider_name == "anthropic":
-            tools = [RETRIEVE_KNOWLEDGE_TOOL_ANTHROPIC]
-        elif provider_name == "ollama":
-            tools = [RETRIEVE_KNOWLEDGE_TOOL_OLLAMA]
-
-        # Reset per-turn state.
         self._current_turn_citations = []
         self._ref_mapping = {}
         self._next_ref_index = 1
@@ -111,13 +86,23 @@ class GroundedConversationalAgent:
                 provider_name,
             )
 
-            response = provider.chat(
-                messages=messages,
-                system_prompt=GROUNDING_SYSTEM_PROMPT,
-                tools=tools if tools else None,
-                tool_executor=self._execute_tool,
-            )
-
+            if provider_name == "ollama":
+                response = self._answer_with_ollama(
+                    provider=provider,
+                    messages=messages,
+                    question=question,
+                )
+            else:
+                response = provider.chat(
+                    messages=messages,
+                    system_prompt=GROUNDING_SYSTEM_PROMPT,
+                    tools=(
+                        [RETRIEVE_KNOWLEDGE_TOOL_ANTHROPIC]
+                        if provider_name == "anthropic"
+                        else None
+                    ),
+                    tool_executor=self._execute_tool,
+                )
 
         except LLMError as exc:
             logger.error(
@@ -126,37 +111,32 @@ class GroundedConversationalAgent:
             )
             raise
 
-        # --- Citation verification using REF-N tokens ---
-        # Parse [REF-N] tokens from the model's response.
-        cited_refs = extract_ref_citations(response.content)
+        # ---------------------------------------------------------------
+        # Strict citation verification
+        # ---------------------------------------------------------------
 
-        # Map valid REF-N labels back to original RetrievalResult objects.
+        cited_refs = extract_ref_citations(
+            response.content
+        )
+
         valid_citations: list[RetrievalResult] = []
         seen_chunk_ids: set[Any] = set()
 
         for ref_label in sorted(cited_refs):
             result = self._ref_mapping.get(ref_label)
+
             if result is not None and result.chunk_id not in seen_chunk_ids:
                 valid_citations.append(result)
                 seen_chunk_ids.add(result.chunk_id)
 
         self._current_turn_citations = valid_citations
 
-        # An answer is considered grounded only when at least one
-        # retrieved chunk was explicitly cited by the LLM.
-        is_grounded = bool(self._current_turn_citations)
+        is_grounded = bool(valid_citations)
 
-        # Deterministic grounding safeguard:
-        # if the LLM did not cite any verified retrieved evidence,
-        # discard the generated factual answer and return the safe
-        # insufficient-evidence response.
+        # Never trust the model merely because retrieval returned results.
+        # The model must explicitly cite a valid retrieved reference.
         if not is_grounded:
-            response.content = (
-                "I don't have enough evidence in the Lenny knowledge base "
-                "to answer that confidently. "
-                "The knowledge base doesn't contain relevant information "
-                "about this topic."
-            )
+            response.content = INSUFFICIENT_EVIDENCE_RESPONSE
 
         return {
             "answer": response.content,
@@ -167,6 +147,69 @@ class GroundedConversationalAgent:
             "grounded": is_grounded,
             "provider": response.provider,
         }
+
+    def _answer_with_ollama(
+        self,
+        provider: Any,
+        messages: list[dict[str, str]],
+        question: str,
+    ) -> Any:
+        """Run the local Ollama path with pre-retrieved evidence.
+
+        Small local models are more reliable when retrieval evidence is
+        provided directly instead of requiring an additional tool-call
+        decision.
+        """
+
+        logger.info(
+            "Ollama local path retrieving evidence before generation"
+        )
+
+        results = self.retriever.retrieve(
+            query=question,
+            db=self.db,
+            top_k=settings.rag_top_k,
+            min_similarity=settings.rag_min_similarity,
+        )
+
+        if results.has_results:
+            context, ref_mapping = build_retrieval_context(
+                results.results,
+                start_index=1,
+            )
+
+            self._ref_mapping = ref_mapping
+            self._current_turn_citations = list(
+                results.results
+            )
+            self._next_ref_index = len(results.results) + 1
+
+            local_system_prompt = (
+                GROUNDING_SYSTEM_PROMPT
+                + "\n\n"
+                + "The retrieved evidence is already provided below. "
+                + "Do not call a retrieval tool. "
+                + "Use this evidence to answer the user's question.\n\n"
+                + context
+            )
+
+        else:
+            self._ref_mapping = {}
+            self._current_turn_citations = []
+
+            local_system_prompt = (
+                GROUNDING_SYSTEM_PROMPT
+                + "\n\n"
+                + "No qualifying knowledge-base evidence was found. "
+                + "Do not answer from general knowledge."
+            )
+
+        return provider.chat(
+            messages=messages,
+            system_prompt=local_system_prompt,
+            tools=None,
+            tool_executor=None,
+        )
 
     @property
     def retriever(self) -> Retriever:
@@ -186,22 +229,7 @@ class GroundedConversationalAgent:
         name: str,
         args: dict[str, Any],
     ) -> str:
-        """Execute a tool called by the LLM.
-
-        Parameters
-        ----------
-        name:
-            Tool name. Must be "retrieve_knowledge".
-
-        args:
-            Tool arguments, for example:
-            {"query": "pricing strategy"}
-
-        Returns
-        -------
-        str
-            Formatted retrieval results for the LLM.
-        """
+        """Execute the retrieval tool for the Anthropic agent path."""
 
         if name != "retrieve_knowledge":
             return f"Error: Unknown tool {name}"
@@ -223,23 +251,6 @@ class GroundedConversationalAgent:
             min_similarity=settings.rag_min_similarity,
         )
 
-        # Save retrieved chunks as candidate citations.
-        self._current_turn_citations.extend(
-            results.results
-        )
-
-        # De-duplicate citations if the model calls the retrieval
-        # tool multiple times during the same turn.
-        seen: set[Any] = set()
-        unique_citations: list[RetrievalResult] = []
-
-        for result in self._current_turn_citations:
-            if result.chunk_id not in seen:
-                seen.add(result.chunk_id)
-                unique_citations.append(result)
-
-        self._current_turn_citations = unique_citations
-
         if not results.has_results:
             logger.info(
                 "Agent retriever returned no qualifying results"
@@ -255,17 +266,13 @@ class GroundedConversationalAgent:
             results.total_found,
         )
 
-        # Build context with REF-N labels, starting from the current
-        # index so multiple tool calls produce non-overlapping refs.
         context, new_mapping = build_retrieval_context(
             results.results,
             start_index=self._next_ref_index,
         )
 
-        # Merge the new mapping into the turn-level mapping.
         self._ref_mapping.update(new_mapping)
 
-        # Advance the index for any subsequent tool calls.
         self._next_ref_index += len(results.results)
 
         return context

@@ -113,6 +113,10 @@ class OllamaProvider:
                 "model": self._model,
                 "messages": api_messages,
                 "stream": False,
+                "options": {
+                    "num_predict": settings.ollama_num_predict,
+                    "temperature": settings.ollama_temperature,
+                },
             }
             # Only offer tools on first round
             if tools and round_num == 0:

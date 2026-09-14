@@ -2,29 +2,25 @@
 
 Chunking strategy
 -----------------
+
 We approximate token count using the rule-of-thumb: 1 token ≈ 5 characters.
-This avoids a heavy tokenizer dependency while remaining consistent.
 
-Target chunk size : ~500 tokens  → 2500 characters
-Overlap           : ~50 tokens   → 250 characters
+Normal transcript segments are grouped at semantic boundaries until the target
+character budget is reached. A very long individual segment is split using a
+sliding window with overlap.
 
-How it works
-------------
-1. Transcript segments are concatenated in order.
-2. We slide a window over the full text, emitting a chunk whenever the
-   accumulated character count reaches TARGET_CHARS.
-3. The next chunk starts OVERLAP_CHARS before the previous one ended,
-   so consecutive chunks share context.
-4. For multi-segment chunks: timestamp_start = first segment's start,
-   timestamp_end = last segment's end.
-5. Short transcripts that fit in one chunk are emitted as a single chunk.
-6. Empty input returns an empty list — never raises.
+Target chunk size : ~160 tokens → 800 characters
+Overlap           : 0 characters for normal semantic chunks
 
 Guarantees
 ----------
+
 - chunk_index is 0-based and sequential.
 - No content is silently discarded.
-- Timestamps are always preserved.
+- Timestamps are preserved.
+- Empty input returns an empty list.
+- Transcript segment boundaries are preferred for normal chunks.
+- Long individual segments retain overlapping sliding-window behavior.
 """
 
 from __future__ import annotations
@@ -34,10 +30,8 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# ~500 tokens × 5 chars/token
-TARGET_CHARS: int = 2500
-# ~50 tokens × 5 chars/token
-OVERLAP_CHARS: int = 250
+TARGET_CHARS: int = 800
+OVERLAP_CHARS: int = 0
 
 
 @dataclass
@@ -60,15 +54,7 @@ class Segment:
 
 
 class TranscriptChunker:
-    """Splits transcript segments into overlapping content chunks.
-
-    Parameters
-    ----------
-    target_chars:
-        Approximate character budget per chunk (default 2500 ≈ 500 tokens).
-    overlap_chars:
-        Overlap in characters between consecutive chunks (default 250 ≈ 50 tokens).
-    """
+    """Splits transcript segments into semantically aware content chunks."""
 
     def __init__(
         self,
@@ -77,43 +63,34 @@ class TranscriptChunker:
     ) -> None:
         if overlap_chars >= target_chars:
             raise ValueError("overlap_chars must be less than target_chars")
+
         self.target_chars = target_chars
         self.overlap_chars = overlap_chars
 
     def chunk(self, segments: list[dict]) -> list[ChunkData]:
-        """Convert raw transcript segments into overlapping ChunkData objects.
+        """Convert raw transcript segments into ChunkData objects."""
 
-        Parameters
-        ----------
-        segments:
-            List of dicts with keys: ``text``, ``start`` (optional), ``end`` (optional).
-
-        Returns
-        -------
-        list[ChunkData]
-            Ordered list of chunks. Empty list if ``segments`` is empty or
-            all segment text is whitespace-only.
-        """
         if not segments:
             return []
 
         parsed = self._parse_segments(segments)
+
         if not parsed:
             return []
 
         return self._build_chunks(parsed)
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _parse_segments(self, raw: list[dict]) -> list[Segment]:
-        """Normalise raw segment dicts into Segment objects."""
+        """Normalise raw segment dictionaries into Segment objects."""
+
         result: list[Segment] = []
+
         for seg in raw:
             text = (seg.get("text") or "").strip()
+
             if not text:
                 continue
+
             result.append(
                 Segment(
                     text=text,
@@ -121,88 +98,167 @@ class TranscriptChunker:
                     end=seg.get("end"),
                 )
             )
+
         return result
 
     def _build_chunks(self, segments: list[Segment]) -> list[ChunkData]:
-        """Slide a window over the segment list, emitting chunks."""
-        # Flatten all text into a single string with segment boundaries tracked.
-        # We track which character positions correspond to which segment's timestamps.
-        full_text = ""
-        # List of (char_start, char_end, seg_start, seg_end) for each segment
-        seg_map: list[tuple[int, int, float | None, float | None]] = []
-        for seg in segments:
-            c_start = len(full_text)
-            full_text += seg.text + " "
-            c_end = len(full_text)
-            seg_map.append((c_start, c_end, seg.start, seg.end))
-
-        full_text = full_text.rstrip()
-        total = len(full_text)
-
-        if total == 0:
-            return []
+        """Build chunks while preferring transcript segment boundaries."""
 
         chunks: list[ChunkData] = []
+        current_segments: list[Segment] = []
+        current_chars = 0
+
+        for segment in segments:
+            segment_length = len(segment.text)
+
+            # A single oversized segment needs character-based splitting.
+            if segment_length > self.target_chars:
+                if current_segments:
+                    chunks.append(
+                        self._make_segment_chunk(
+                            current_segments,
+                            len(chunks),
+                        )
+                    )
+                    current_segments = []
+                    current_chars = 0
+
+                chunks.extend(
+                    self._split_long_segment(
+                        segment,
+                        start_index=len(chunks),
+                    )
+                )
+                continue
+
+            separator_length = 1 if current_segments else 0
+            proposed_length = (
+                current_chars + separator_length + segment_length
+            )
+
+            if (
+                current_segments
+                and proposed_length > self.target_chars
+            ):
+                chunks.append(
+                    self._make_segment_chunk(
+                        current_segments,
+                        len(chunks),
+                    )
+                )
+
+                current_segments = [segment]
+                current_chars = segment_length
+            else:
+                current_segments.append(segment)
+                current_chars = proposed_length
+
+        if current_segments:
+            chunks.append(
+                self._make_segment_chunk(
+                    current_segments,
+                    len(chunks),
+                )
+            )
+
+        return chunks
+
+    def _make_segment_chunk(
+        self,
+        segments: list[Segment],
+        chunk_index: int,
+    ) -> ChunkData:
+        """Create a chunk from complete transcript segments."""
+
+        content = " ".join(segment.text for segment in segments).strip()
+
+        timestamp_start = next(
+            (
+                segment.start
+                for segment in segments
+                if segment.start is not None
+            ),
+            None,
+        )
+
+        timestamp_end = next(
+            (
+                segment.end
+                for segment in reversed(segments)
+                if segment.end is not None
+            ),
+            None,
+        )
+
+        logger.debug(
+            "Emitted semantic chunk %d: segments=%d chars=%d ts=[%s, %s]",
+            chunk_index,
+            len(segments),
+            len(content),
+            timestamp_start,
+            timestamp_end,
+        )
+
+        return ChunkData(
+            content=content,
+            chunk_index=chunk_index,
+            timestamp_start=timestamp_start,
+            timestamp_end=timestamp_end,
+        )
+
+    def _split_long_segment(
+        self,
+        segment: Segment,
+        start_index: int,
+    ) -> list[ChunkData]:
+        """Split one oversized transcript segment with character overlap."""
+
+        text = segment.text
+        total = len(text)
+        chunks: list[ChunkData] = []
+
         pos = 0
-        chunk_index = 0
 
         while pos < total:
             end = min(pos + self.target_chars, total)
 
-            # Don't cut in the middle of a word — advance to next space
             if end < total:
-                space = full_text.find(" ", end)
+                space = text.find(" ", end)
+
                 if space != -1:
                     end = space
 
-            content = full_text[pos:end].strip()
+            content = text[pos:end].strip()
+
             if not content:
                 break
-
-            ts_start, ts_end = self._timestamps_for_range(seg_map, pos, end)
 
             chunks.append(
                 ChunkData(
                     content=content,
-                    chunk_index=chunk_index,
-                    timestamp_start=ts_start,
-                    timestamp_end=ts_end,
+                    chunk_index=start_index + len(chunks),
+                    timestamp_start=segment.start,
+                    timestamp_end=segment.end,
                 )
             )
-            chunk_index += 1
+
             logger.debug(
-                "Emitted chunk %d: chars [%d, %d) ts=[%s, %s]",
-                chunk_index - 1,
+                "Emitted long-segment chunk %d: chars [%d, %d) ts=[%s, %s]",
+                start_index + len(chunks) - 1,
                 pos,
                 end,
-                ts_start,
-                ts_end,
+                segment.start,
+                segment.end,
             )
 
             if end >= total:
                 break
 
-            # Advance with overlap
-            pos = end - self.overlap_chars
-            if pos <= 0:
-                break
+            next_pos = end - self.overlap_chars
+
+            if next_pos <= pos:
+                next_pos = end
+
+            pos = next_pos
 
         return chunks
-
-    def _timestamps_for_range(
-        self,
-        seg_map: list[tuple[int, int, float | None, float | None]],
-        char_start: int,
-        char_end: int,
-    ) -> tuple[float | None, float | None]:
-        """Return (first_seg_start, last_seg_end) for segments overlapping [char_start, char_end)."""
-        ts_start: float | None = None
-        ts_end: float | None = None
-        for c_s, c_e, s_start, s_end in seg_map:
-            # Segment overlaps with the chunk window
-            if c_e > char_start and c_s < char_end:
-                if ts_start is None and s_start is not None:
-                    ts_start = s_start
-                if s_end is not None:
-                    ts_end = s_end
-        return ts_start, ts_end

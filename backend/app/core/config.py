@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # LLM request timeout in seconds
     llm_timeout: float = 120.0
 
+    # Ollama generation controls
+    ollama_num_predict: int = 2200
+    ollama_temperature: float = 0.1
+
     # Embeddings (Phase 2 — unchanged)
     embedding_provider: str = "ollama"
     embedding_model: str = "nomic-embed-text"
